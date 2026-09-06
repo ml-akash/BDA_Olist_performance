@@ -6,32 +6,31 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017'|| 'mongodb+srv://admin:OlistAtlas2026@cluster0.qvrrez0.mongodb.net/olist_analytics?retryWrites=true&w=majority';
-const DB_NAME = process.env.DB_NAME || 'olist_analytics';
-
-// const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://admin:OlistAtlas2026@cluster0.qvrrez0.mongodb.net/olist_analytics?retryWrites=true&w=majority';
-// const DB_NAME = process.env.DB_NAME || 'olist_analytics';
-
-let db;
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://admin:OlistAtlas2026@cluster0.qvrrez0.mongodb.net/olist_analytics?retryWrites=true&w=majority";
+const DB_NAME = process.env.DB_NAME || "olist_analytics";
 const BRL_TO_INR = 18.0;
 
-// Connect to MongoDB
-MongoClient.connect(MONGO_URI)
-  .then(client => {
-    db = client.db(DB_NAME);
-    console.log(`Connected to database: ${DB_NAME}`);
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-  })
-  .catch(err => {
-    console.error("MongoDB Connection Failed:", err);
+let cachedClient = null;
+let cachedDb = null;
+
+async function connectToDatabase() {
+  if (cachedDb) return cachedDb;
+
+  const client = new MongoClient(MONGO_URI, {
+    connectTimeoutMS: 15000,
+    socketTimeoutMS: 45000
   });
 
-// 1. LIVE PAGINATED & SEARCHABLE CRUD ENDPOINT
+  await client.connect();
+  cachedClient = client;
+  cachedDb = client.db(DB_NAME);
+  return cachedDb;
+}
+
+// 1. Paginated CRUD endpoint
 app.get('/api/data/:collection', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'Database not initialized' });
-
+    const db = await connectToDatabase();
     const colName = req.params.collection;
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.max(1, parseInt(req.query.limit) || 10);
@@ -43,34 +42,14 @@ app.get('/api/data/:collection', async (req, res) => {
     }
 
     let filter = {};
-
     if (search !== '') {
       const regex = { $regex: search, $options: 'i' };
       if (colName === 'orders') {
-        filter = {
-          $or: [
-            { order_id: regex },
-            { customer_id: regex },
-            { order_status: regex }
-          ]
-        };
+        filter = { $or: [{ order_id: regex }, { customer_id: regex }, { order_status: regex }] };
       } else if (colName === 'products') {
-        filter = {
-          $or: [
-            { product_id: regex },
-            { product_category_name: regex },
-            { product_category_name_english: regex }
-          ]
-        };
+        filter = { $or: [{ product_id: regex }, { product_category_name: regex }, { product_category_name_english: regex }] };
       } else if (colName === 'customers') {
-        filter = {
-          $or: [
-            { customer_id: regex },
-            { customer_unique_id: regex },
-            { customer_city: regex },
-            { customer_state: regex }
-          ]
-        };
+        filter = { $or: [{ customer_id: regex }, { customer_unique_id: regex }, { customer_city: regex }, { customer_state: regex }] };
       }
     }
 
@@ -85,31 +64,28 @@ app.get('/api/data/:collection', async (req, res) => {
   }
 });
 
-// 2. LIVE DISTINCT CATEGORIES DIRECTLY FROM INGESTED PRODUCTS
+// 2. Distinct Categories List
 app.get('/api/analytics/categories-list', async (req, res) => {
   try {
-    if (!db) return res.json([]);
+    const db = await connectToDatabase();
     const categories = await db.collection('products').distinct('product_category_name_english');
     const valid = categories.filter(c => c && typeof c === 'string' && c.trim() !== '').sort();
     if (valid.length > 0) return res.json(valid);
 
-    // Fallback to Portuguese name if English isn't mapped
-    const fallbackCats = await db.collection('products').distinct('product_category_name');
-    res.json(fallbackCats.filter(c => c && typeof c === 'string').sort());
+    const fallback = await db.collection('products').distinct('product_category_name');
+    res.json(fallback.filter(c => c && typeof c === 'string').sort());
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 3. REAL AGGREGATION PIPELINE: CATEGORY & YEAR FILTERING
+// 3. Category & Year Insights
 app.get('/api/analytics/category-year-insights', async (req, res) => {
   try {
-    if (!db) return res.json({ summary: {}, trends: [] });
-
+    const db = await connectToDatabase();
     const category = req.query.category;
     const year = req.query.year || 'ALL';
 
-    // Step A: Find product_ids matching this category
     const matchingProducts = await db.collection('products')
       .find({
         $or: [
@@ -121,7 +97,6 @@ app.get('/api/analytics/category-year-insights', async (req, res) => {
 
     const productIds = new Set(matchingProducts.map(p => p.product_id));
 
-    // Step B: Query Orders with purchase timestamp
     let orderMatch = {};
     if (year !== 'ALL') {
       orderMatch.order_purchase_timestamp = { $regex: `^${year}` };
@@ -162,7 +137,6 @@ app.get('/api/analytics/category-year-insights', async (req, res) => {
     }
 
     const trends = Array.from(periodMap.values()).sort((a, b) => a.period.localeCompare(b.period));
-
     res.json({
       summary: {
         totalRevenueINR: grandRevenueINR,
@@ -177,33 +151,19 @@ app.get('/api/analytics/category-year-insights', async (req, res) => {
   }
 });
 
-// 4. LIVE DASHBOARD METRICS FROM MONGODB
+// 4. Visual Dashboard Trends
 app.get('/api/analytics/visual-dashboard', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'DB not ready' });
-
-    // Aggregate monthly revenue trends from orders collection
-    const trendsPipeline = [
+    const db = await connectToDatabase();
+    const rawTrends = await db.collection('orders').aggregate([
       { $match: { order_purchase_timestamp: { $exists: true, $ne: null } } },
-      {
-        $project: {
-          period: { $substrCP: ["$order_purchase_timestamp", 0, 7] },
-          items: 1
-        }
-      },
+      { $project: { period: { $substrCP: ["$order_purchase_timestamp", 0, 7] }, items: 1 } },
       { $unwind: { path: "$items", preserveNullAndEmptyArrays: false } },
-      {
-        $group: {
-          _id: "$period",
-          revenueBRL: { $sum: "$items.price" },
-          units: { $sum: 1 }
-        }
-      },
+      { $group: { _id: "$period", revenueBRL: { $sum: "$items.price" }, units: { $sum: 1 } } },
       { $sort: { _id: 1 } },
       { $limit: 12 }
-    ];
+    ]).toArray();
 
-    const rawTrends = await db.collection('orders').aggregate(trendsPipeline).toArray();
     const salesTrends = rawTrends.map(t => ({
       period: t._id,
       revenueINR: Math.round(t.revenueBRL * BRL_TO_INR),
@@ -229,10 +189,10 @@ app.get('/api/analytics/visual-dashboard', async (req, res) => {
   }
 });
 
-// 5. EXACT COLLECTION COUNTS
+// 5. Collection Counts
 app.get('/api/metrics', async (req, res) => {
   try {
-    if (!db) return res.json({ orderCount: 0, productCount: 0, customerCount: 0 });
+    const db = await connectToDatabase();
     const [orderCount, productCount, customerCount] = await Promise.all([
       db.collection('orders').countDocuments(),
       db.collection('products').countDocuments(),
@@ -244,9 +204,10 @@ app.get('/api/metrics', async (req, res) => {
   }
 });
 
-// 6. REAL CRUD: INSERT, UPDATE, DELETE TO MONGODB
+// 6. Mutations: POST, PUT, DELETE
 app.post('/api/data/:collection', async (req, res) => {
   try {
+    const db = await connectToDatabase();
     const colName = req.params.collection;
     const body = req.body;
     if (colName === 'orders') {
@@ -260,7 +221,6 @@ app.post('/api/data/:collection', async (req, res) => {
       body.customer_id = body.customer_id || 'cust_' + Date.now();
       body.customer_unique_id = body.customer_unique_id || 'uniq_' + Date.now();
     }
-
     const result = await db.collection(colName).insertOne(body);
     res.status(201).json({ success: true, insertedId: result.insertedId });
   } catch (err) {
@@ -270,14 +230,13 @@ app.post('/api/data/:collection', async (req, res) => {
 
 app.put('/api/data/:collection/:id', async (req, res) => {
   try {
+    const db = await connectToDatabase();
     const colName = req.params.collection;
     const id = req.params.id;
     const updates = { ...req.body };
     delete updates._id;
-
     let query = { $or: [{ order_id: id }, { product_id: id }, { customer_id: id }] };
     if (ObjectId.isValid(id)) query.$or.push({ _id: new ObjectId(id) });
-
     await db.collection(colName).updateOne(query, { $set: updates });
     res.json({ success: true });
   } catch (err) {
@@ -287,14 +246,16 @@ app.put('/api/data/:collection/:id', async (req, res) => {
 
 app.delete('/api/data/:collection/:id', async (req, res) => {
   try {
+    const db = await connectToDatabase();
     const colName = req.params.collection;
     const id = req.params.id;
     let query = { $or: [{ order_id: id }, { product_id: id }, { customer_id: id }] };
     if (ObjectId.isValid(id)) query.$or.push({ _id: new ObjectId(id) });
-
     await db.collection(colName).deleteOne(query);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+module.exports = app;

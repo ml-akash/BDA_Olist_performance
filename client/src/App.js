@@ -5,8 +5,9 @@ import {
 } from 'recharts';
 
 const BRL_TO_INR = 18.0;
+const API_BASE_URL = '';
 // const API_BASE_URL = 'http://localhost:5000';
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bda-olist-backend.onrender.com';
+// const API_BASE_URL = 'http://localhost:5000' || process.env.REACT_APP_API_URL || 'https://bda-olist-backend.onrender.com';
 
 const formatRupee = (num) => {
   if (num === undefined || num === null || isNaN(num)) return '₹0';
