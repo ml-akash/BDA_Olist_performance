@@ -3,34 +3,52 @@ const { MongoClient, ObjectId } = require('mongodb');
 const cors = require('cors');
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
-// const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017';
-// const DB_NAME = 'olist_analytics';
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://admin:OlistAtlas2026@cluster0.qvrrez0.mongodb.net/olist_analytics?retryWrites=true&w=majority";
+const DB_NAME = process.env.DB_NAME || "olist_analytics";
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://admin:OlistAtlas2026@cluster0.qvrrez0.mongodb.net/olist_analytics?retryWrites=true&w=majority';
-const DB_NAME = process.env.DB_NAME || 'olist_analytics';
-
-let db;
+let db = null;
 const BRL_TO_INR = 18.0;
 
-// Connect to MongoDB
-MongoClient.connect(MONGO_URI)
-  .then(client => {
+// 1. Bind port immediately so Render's health check marks the service LIVE
+app.listen(PORT, () => {
+  console.log(`Server actively running on port ${PORT}`);
+});
+
+// 2. Connect to MongoDB Atlas with resilient TLS configuration
+const client = new MongoClient(MONGO_URI, {
+  connectTimeoutMS: 20000,
+  socketTimeoutMS: 45000
+});
+
+async function connectDB() {
+  try {
+    await client.connect();
     db = client.db(DB_NAME);
-    console.log(`Connected to database: ${DB_NAME}`);
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-  })
-  .catch(err => {
-    console.error("MongoDB Connection Failed:", err);
+    console.log(`Successfully connected to database: ${DB_NAME}`);
+  } catch (err) {
+    console.error("MongoDB Atlas connection notice (retrying):", err.message);
+    setTimeout(connectDB, 5000);
+  }
+}
+connectDB();
+
+// Health Check Endpoint
+app.get('/', (req, res) => {
+  res.json({
+    status: 'Online',
+    database: db ? 'Connected' : 'Connecting...',
+    port: PORT
   });
+});
 
 // 1. LIVE PAGINATED & SEARCHABLE CRUD ENDPOINT
 app.get('/api/data/:collection', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'Database not initialized' });
+    if (!db) return res.status(503).json({ error: 'Database still establishing connection' });
 
     const colName = req.params.collection;
     const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -85,7 +103,7 @@ app.get('/api/data/:collection', async (req, res) => {
   }
 });
 
-// 2. LIVE DISTINCT CATEGORIES DIRECTLY FROM INGESTED PRODUCTS
+// 2. LIVE DISTINCT CATEGORIES DIRECTLY FROM ATLAS
 app.get('/api/analytics/categories-list', async (req, res) => {
   try {
     if (!db) return res.json([]);
@@ -93,7 +111,6 @@ app.get('/api/analytics/categories-list', async (req, res) => {
     const valid = categories.filter(c => c && typeof c === 'string' && c.trim() !== '').sort();
     if (valid.length > 0) return res.json(valid);
 
-    // Fallback to Portuguese name if English isn't mapped
     const fallbackCats = await db.collection('products').distinct('product_category_name');
     res.json(fallbackCats.filter(c => c && typeof c === 'string').sort());
   } catch (err) {
@@ -109,7 +126,6 @@ app.get('/api/analytics/category-year-insights', async (req, res) => {
     const category = req.query.category;
     const year = req.query.year || 'ALL';
 
-    // Step A: Find product_ids matching this category
     const matchingProducts = await db.collection('products')
       .find({
         $or: [
@@ -121,7 +137,6 @@ app.get('/api/analytics/category-year-insights', async (req, res) => {
 
     const productIds = new Set(matchingProducts.map(p => p.product_id));
 
-    // Step B: Query Orders with purchase timestamp
     let orderMatch = {};
     if (year !== 'ALL') {
       orderMatch.order_purchase_timestamp = { $regex: `^${year}` };
@@ -180,9 +195,8 @@ app.get('/api/analytics/category-year-insights', async (req, res) => {
 // 4. LIVE DASHBOARD METRICS FROM MONGODB
 app.get('/api/analytics/visual-dashboard', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'DB not ready' });
+    if (!db) return res.status(503).json({ error: 'DB connecting...' });
 
-    // Aggregate monthly revenue trends from orders collection
     const trendsPipeline = [
       { $match: { order_purchase_timestamp: { $exists: true, $ne: null } } },
       {
