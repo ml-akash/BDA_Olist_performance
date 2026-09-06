@@ -1,0 +1,11 @@
+Set-Content -Path .gitignore -Value @"
+node_modules/
+client/node_modules/
+server/node_modules/
+client/build/
+target/
+ingestion/target/
+data/*.csv
+.env
+.DS_Store
+"@
