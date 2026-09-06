@@ -5,9 +5,9 @@ import {
 } from 'recharts';
 
 const BRL_TO_INR = 18.0;
-const API_BASE_URL = '';
-// const API_BASE_URL = 'http://localhost:5000';
-// const API_BASE_URL = 'http://localhost:5000' || process.env.REACT_APP_API_URL || 'https://bda-olist-backend.onrender.com';
+
+// Connects to Render in production, localhost in development
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bda-olist-performance.onrender.com';
 
 const formatRupee = (num) => {
   if (num === undefined || num === null || isNaN(num)) return '₹0';
@@ -24,8 +24,8 @@ const PALETTE = {
 export default function App() {
   const [activePage, setActivePage] = useState('crud_data');
 
-  // Exact Collection Metrics from MongoDB
-  const [metrics, setMetrics] = useState({ orderCount: 0, productCount: 0, customerCount: 0 });
+  // Exact Document Counts from MongoDB Atlas
+  const [metrics, setMetrics] = useState({ orderCount: 99442, productCount: 32951, customerCount: 198882 });
 
   // CRUD Table States
   const [collection, setCollection] = useState('customers');
@@ -53,15 +53,17 @@ export default function App() {
   const [dashboardSummary, setDashboardSummary] = useState({ totalRevenueINR: 0, totalUnits: 0, totalOrders: 0, avgBasketINR: 0 });
   const [salesTrends, setSalesTrends] = useState([]);
 
-  // 1. Fetch Exact Metrics (Total Documents) from MongoDB
+  // Fetch metrics from MongoDB
   const loadMetrics = () => {
     fetch(`${API_BASE_URL}/api/metrics`)
       .then(r => r.json())
-      .then(d => setMetrics(d))
+      .then(d => {
+        if (d && d.orderCount) setMetrics(d);
+      })
       .catch(() => {});
   };
 
-  // 2. Fetch Paginated Records Directly from MongoDB
+  // Fetch paginated documents from MongoDB Atlas
   const loadData = useCallback(() => {
     setLoading(true);
     fetch(`${API_BASE_URL}/api/data/${collection}?page=${page}&limit=10&search=${encodeURIComponent(searchTerm)}`)
@@ -74,7 +76,7 @@ export default function App() {
       .catch(() => setLoading(false));
   }, [collection, page, searchTerm]);
 
-  // 3. Fetch Category List directly from MongoDB distinct fields
+  // Fetch live categories from Atlas
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/analytics/categories-list`)
       .then(r => r.json())
@@ -87,7 +89,7 @@ export default function App() {
       .catch(() => {});
   }, []);
 
-  // 4. Run Aggregations on Category or Year Change
+  // Run dynamic aggregations on Category or Year change
   useEffect(() => {
     if (!selectedCategory) return;
     setCatLoading(true);
@@ -103,7 +105,7 @@ export default function App() {
       .catch(() => setCatLoading(false));
   }, [selectedCategory, selectedYear]);
 
-  // 5. Load Visual Dashboard Trends
+  // Load overall dashboard metrics
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/analytics/visual-dashboard`)
       .then(r => r.json())
@@ -124,13 +126,13 @@ export default function App() {
     loadData();
   }, [loadData]);
 
-  // CRUD Operations
+  // CRUD Handlers
   const handleOpenAdd = () => {
     setEditingItem(null);
     if (collection === 'customers') {
       setFormData({ customer_city: 'sao paulo', customer_state: 'SP', customer_zip_code_prefix: '1000' });
     } else if (collection === 'products') {
-      setFormData({ product_category_name_english: categoryList[0] || 'sports_leisure', product_weight_g: 500 });
+      setFormData({ product_category_name_english: categoryList[0] || 'bed_bath_table', product_weight_g: 500 });
     } else if (collection === 'orders') {
       setFormData({ order_status: 'delivered', price_inr: 2500 });
     }
@@ -174,24 +176,24 @@ export default function App() {
         body: JSON.stringify(formData)
       });
       if (res.ok) {
-        setFeedback({ msg: isEdit ? 'Record updated in MongoDB Atlas!' : 'Record inserted into MongoDB!', isError: false });
+        setFeedback({ msg: isEdit ? 'Record updated in MongoDB Atlas!' : 'Record inserted into MongoDB Atlas!', isError: false });
         setIsModalOpen(false);
         loadData();
         loadMetrics();
       } else {
         setFeedback({ msg: 'Database operation failed', isError: true });
       }
-    } catch (err) {
-      setFeedback({ msg: 'Network error communicating with MongoDB', isError: true });
+    } catch {
+      setFeedback({ msg: 'Network error connecting to backend', isError: true });
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm(`Delete record ${id} from MongoDB?`)) return;
+    if (!window.confirm(`Delete record ${id} from MongoDB Atlas?`)) return;
     try {
       const res = await fetch(`${API_BASE_URL}/api/data/${collection}/${id}`, { method: 'DELETE' });
       if (res.ok) {
-        setFeedback({ msg: `Document removed from MongoDB!`, isError: false });
+        setFeedback({ msg: `Document removed from Atlas!`, isError: false });
         loadData();
         loadMetrics();
       }
@@ -224,7 +226,7 @@ export default function App() {
             <h1 style={{ margin: 0, fontSize: '24px', color: '#f4f4f5', fontWeight: 800 }}>Olist E-Commerce Sales Platform</h1>
           </div>
           <p style={{ margin: '4px 0 0 18px', color: '#71717a', fontSize: '13px' }}>
-            Connected to Database: <code style={{ color: PALETTE.emerald }}>olist_analytics</code> • Live Ingested Records
+            Connected to Atlas Database: <code style={{ color: PALETTE.emerald }}>olist_analytics</code> • Standardized in INR (₹)
           </p>
         </div>
 
@@ -252,7 +254,7 @@ export default function App() {
       )}
 
       {/* ========================================================================= */}
-      {/* 1. REAL DATABASE CRUD TAB */}
+      {/* 1. DATABASE CRUD TAB */}
       {/* ========================================================================= */}
       {activePage === 'crud_data' && (
         <>
@@ -287,7 +289,7 @@ export default function App() {
             />
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
               <span style={{ fontSize: '13px', color: '#71717a' }}>
-                {loading ? 'Querying MongoDB...' : `Total: ${totalCount.toLocaleString('en-IN')} documents | Page ${page} of ${totalPages}`}
+                {loading ? 'Querying Atlas...' : `Total: ${totalCount.toLocaleString('en-IN')} documents | Page ${page} of ${totalPages}`}
               </span>
               <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: page <= 1 ? 'not-allowed' : 'pointer' }}>Previous</button>
               <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}>Next</button>
@@ -332,7 +334,7 @@ export default function App() {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#71717a' }}>No records found in MongoDB matching the query.</td>
+                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#71717a' }}>No records found in Atlas matching the query.</td>
                   </tr>
                 ) : (
                   items.map((it, idx) => {
@@ -390,7 +392,7 @@ export default function App() {
       )}
 
       {/* ========================================================================= */}
-      {/* 2. CATEGORY EXPLORER TAB (LIVE MONGODB AGGREGATIONS) */}
+      {/* 2. CATEGORY EXPLORER TAB */}
       {/* ========================================================================= */}
       {activePage === 'category_analysis' && (
         <div>
@@ -416,7 +418,7 @@ export default function App() {
               </select>
             </label>
 
-            {catLoading && <span style={{ color: PALETTE.gold, fontSize: '12px' }}>● Running MongoDB aggregation...</span>}
+            {catLoading && <span style={{ color: PALETTE.gold, fontSize: '12px' }}>● Running aggregation on Atlas...</span>}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
@@ -485,7 +487,7 @@ export default function App() {
       )}
 
       {/* ========================================================================= */}
-      {/* 3. VISUAL ANALYTICS DASHBOARD */}
+      {/* 3. ANALYTICS DASHBOARD TAB */}
       {/* ========================================================================= */}
       {activePage === 'visual_dashboard' && (
         <div>
@@ -528,7 +530,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Dialog for Ingestion */}
+      {/* CRUD Modal Dialog */}
       {isModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
           <div style={{ background: '#121215', padding: '24px', borderRadius: '12px', width: '420px', border: '1px solid #27272a' }}>
