@@ -1,11 +1,14 @@
-Set-Content -Path .gitignore -Value @"
+# Dependencies
 node_modules/
-client/node_modules/
-server/node_modules/
-client/build/
-target/
-ingestion/target/
-data/*.csv
+
+# Local backups & dumps
+mongo_backup/
+backup/
+*.dump
+*.bson
+*.json
+
+# Environment variables & keys
 .env
-.DS_Store
-"@
+.env.local
+.env.production
