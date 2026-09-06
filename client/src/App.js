@@ -5,7 +5,8 @@ import {
 } from 'recharts';
 
 const BRL_TO_INR = 18.0;
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bda-olist-performance.onrender.com';
+// const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bda-olist-backend.onrender.com';
 
 const formatRupee = (num) => {
   if (num === undefined || num === null || isNaN(num)) return '₹0';
@@ -19,172 +20,140 @@ const PALETTE = {
   coral: '#f43f5e'
 };
 
-const INITIAL_ORDERS = [
-  { order_id: 'ord_9941a', object_name: 'Luxury Cotton Bedding Set', customer_name: 'Aline Santos', order_status: 'delivered', price_inr: 2840 },
-  { order_id: 'ord_9942b', object_name: 'Stainless Chronograph Watch', customer_name: 'Gabriel Lima', order_status: 'delivered', price_inr: 4950 },
-  { order_id: 'ord_9943c', object_name: 'Hydrating Face Serum Duo', customer_name: 'Fernanda Oliveira', order_status: 'delivered', price_inr: 1650 },
-  { order_id: 'ord_9944d', object_name: 'Trek Mountain Rucksack', customer_name: 'Carlos Silva', order_status: 'shipped', price_inr: 3200 },
-  { order_id: 'ord_9945e', object_name: 'Mechanical Gaming Keyboard', customer_name: 'Lucas Pereira', order_status: 'delivered', price_inr: 5400 },
-  { order_id: 'ord_9946f', object_name: 'Ceramic Table Lamp Glow', customer_name: 'Beatriz Costa', order_status: 'delivered', price_inr: 2100 },
-  { order_id: 'ord_9947g', object_name: 'Ergonomic Mesh Office Chair', customer_name: 'Rodrigo Alves', order_status: 'delivered', price_inr: 8900 },
-  { order_id: 'ord_9948h', object_name: 'Smart Bluetooth Soundbar', customer_name: 'Juliana Souza', order_status: 'processing', price_inr: 6750 },
-  { order_id: 'ord_9949i', object_name: 'Non-Stick Induction Pan', customer_name: 'Bruno Martins', order_status: 'delivered', price_inr: 1890 },
-  { order_id: 'ord_9950j', object_name: 'Premium Leather Wallet', customer_name: 'Camila Rocha', order_status: 'delivered', price_inr: 1250 }
-];
-
-const INITIAL_PRODUCTS = [
-  { product_id: 'prod_101', object_name: 'Luxury Cotton Bedding Set', product_category_name_english: 'bed_bath_table', product_weight_g: 1250 },
-  { product_id: 'prod_102', object_name: 'Stainless Chronograph Watch', product_category_name_english: 'watches_gifts', product_weight_g: 450 },
-  { product_id: 'prod_103', object_name: 'Hydrating Face Serum Duo', product_category_name_english: 'health_beauty', product_weight_g: 220 },
-  { product_id: 'prod_104', object_name: 'Trek Mountain Rucksack', product_category_name_english: 'sports_leisure', product_weight_g: 850 },
-  { product_id: 'prod_105', object_name: 'Mechanical Gaming Keyboard', product_category_name_english: 'computers_accessories', product_weight_g: 950 }
-];
-
-const INITIAL_CUSTOMERS = [
-  { customer_id: 'cust_201', customer_name: 'Aline Santos', customer_city: 'Mumbai', customer_state: 'MH', customer_zip_code_prefix: 400001 },
-  { customer_id: 'cust_202', customer_name: 'Gabriel Lima', customer_city: 'Bengaluru', customer_state: 'KA', customer_zip_code_prefix: 560001 },
-  { customer_id: 'cust_203', customer_name: 'Fernanda Oliveira', customer_city: 'Delhi', customer_state: 'DL', customer_zip_code_prefix: 110001 },
-  { customer_id: 'cust_204', customer_name: 'Carlos Silva', customer_city: 'Hyderabad', customer_state: 'TS', customer_zip_code_prefix: 500001 }
-];
-
-function generateDynamicTrends(category, year) {
-  let hash = 0;
-  for (let i = 0; i < category.length; i++) hash = (hash << 5) - hash + category.charCodeAt(i);
-  const base = Math.abs(hash % 10) + 5;
-  const mult = year === '2016' ? 0.35 : year === '2017' ? 1.15 : year === '2018' ? 1.6 : 1.0;
-  
-  const periods = year === 'ALL'
-    ? ['2017-01', '2017-05', '2017-09', '2018-01', '2018-05', '2018-08']
-    : [`${year}-01`, `${year}-03`, `${year}-05`, `${year}-07`, `${year}-09`, `${year}-11`];
-
-  return periods.map((p, idx) => {
-    const units = Math.round(base * 45 * mult * (1 + idx * 0.2));
-    const rev = Math.round(units * 1850);
-    return {
-      period: p,
-      category,
-      unitsSold: units,
-      orderCount: Math.round(units * 0.8),
-      revenueINR: rev
-    };
-  });
-}
-
 export default function App() {
   const [activePage, setActivePage] = useState('crud_data');
 
-  // Master local state stores (so search, filter, and add work even if API sleeps)
-  const [masterOrders, setMasterOrders] = useState(INITIAL_ORDERS);
-  const [masterProducts, setMasterProducts] = useState(INITIAL_PRODUCTS);
-  const [masterCustomers, setMasterCustomers] = useState(INITIAL_CUSTOMERS);
+  // Exact Collection Metrics from MongoDB
+  const [metrics, setMetrics] = useState({ orderCount: 0, productCount: 0, customerCount: 0 });
 
-  // Category & Year Filter States
-  const [categoryList, setCategoryList] = useState([
-    'bed_bath_table', 'health_beauty', 'watches_gifts', 'sports_leisure',
-    'computers_accessories', 'furniture_decor', 'housewares', 'auto', 'telephony'
-  ]);
-  const [selectedCategory, setSelectedCategory] = useState('furniture_decor');
-  const [selectedYear, setSelectedYear] = useState('ALL');
-  const [catTrends, setCatTrends] = useState(() => generateDynamicTrends('furniture_decor', 'ALL'));
-
-  // CRUD UI States
-  const [collection, setCollection] = useState('orders');
+  // CRUD Table States
+  const [collection, setCollection] = useState('customers');
+  const [items, setItems] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState({ msg: '', isError: false });
+
+  // Modal Dialog Form States
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({});
 
-  // Dynamic filter effect that always works instantly
-  useEffect(() => {
-    const updated = generateDynamicTrends(selectedCategory, selectedYear);
-    setCatTrends(updated);
+  // Category Explorer States
+  const [categoryList, setCategoryList] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedYear, setSelectedYear] = useState('ALL');
+  const [catSummary, setCatSummary] = useState({ totalRevenueINR: 0, totalUnitsSold: 0, totalOrders: 0, avgBasketINR: 0 });
+  const [catTrends, setCatTrends] = useState([]);
+  const [catLoading, setCatLoading] = useState(false);
 
-    // Try fetching from server in background if available
-    fetch(`${API_BASE_URL}/api/analytics/category-year-insights?category=${selectedCategory}&year=${selectedYear}`)
+  // Analytics Dashboard States
+  const [dashboardSummary, setDashboardSummary] = useState({ totalRevenueINR: 0, totalUnits: 0, totalOrders: 0, avgBasketINR: 0 });
+  const [salesTrends, setSalesTrends] = useState([]);
+
+  // 1. Fetch Exact Metrics (Total Documents) from MongoDB
+  const loadMetrics = () => {
+    fetch(`${API_BASE_URL}/api/metrics`)
       .then(r => r.json())
-      .then(res => {
-        if (res && res.trends && res.trends.length > 0) setCatTrends(res.trends);
-      })
+      .then(d => setMetrics(d))
       .catch(() => {});
-  }, [selectedCategory, selectedYear]);
+  };
 
-  // Try fetching live server data in background on mount
-  useEffect(() => {
-    fetch(`${API_BASE_URL}/api/data/orders?page=1&limit=50`)
+  // 2. Fetch Paginated Records Directly from MongoDB
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch(`${API_BASE_URL}/api/data/${collection}?page=${page}&limit=10&search=${encodeURIComponent(searchTerm)}`)
       .then(r => r.json())
       .then(res => {
-        if (res && res.data && res.data.length > 0) setMasterOrders(res.data);
+        setItems(res.data || []);
+        setTotalCount(res.total || 0);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [collection, page, searchTerm]);
+
+  // 3. Fetch Category List directly from MongoDB distinct fields
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/analytics/categories-list`)
+      .then(r => r.json())
+      .then(list => {
+        if (Array.isArray(list) && list.length > 0) {
+          setCategoryList(list);
+          setSelectedCategory(list[0]);
+        }
       })
       .catch(() => {});
   }, []);
 
-  // Compute Active List based on current collection and search term
-  const getActiveList = useCallback(() => {
-    let source = masterOrders;
-    if (collection === 'products') source = masterProducts;
-    if (collection === 'customers') source = masterCustomers;
+  // 4. Run Aggregations on Category or Year Change
+  useEffect(() => {
+    if (!selectedCategory) return;
+    setCatLoading(true);
+    fetch(`${API_BASE_URL}/api/analytics/category-year-insights?category=${encodeURIComponent(selectedCategory)}&year=${selectedYear}`)
+      .then(r => r.json())
+      .then(res => {
+        if (res && res.trends) {
+          setCatSummary(res.summary || {});
+          setCatTrends(res.trends || []);
+        }
+        setCatLoading(false);
+      })
+      .catch(() => setCatLoading(false));
+  }, [selectedCategory, selectedYear]);
 
-    if (!searchTerm.trim()) return source;
+  // 5. Load Visual Dashboard Trends
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/analytics/visual-dashboard`)
+      .then(r => r.json())
+      .then(res => {
+        if (res && res.salesTrends) {
+          setDashboardSummary(res.summary);
+          setSalesTrends(res.salesTrends);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
-    const term = searchTerm.toLowerCase().trim();
-    return source.filter(it => {
-      return (
-        (it.object_name && it.object_name.toLowerCase().includes(term)) ||
-        (it.customer_name && it.customer_name.toLowerCase().includes(term)) ||
-        (it.order_status && it.order_status.toLowerCase().includes(term)) ||
-        (it.product_category_name_english && it.product_category_name_english.toLowerCase().includes(term)) ||
-        (it.customer_city && it.customer_city.toLowerCase().includes(term)) ||
-        (it.customer_state && it.customer_state.toLowerCase().includes(term)) ||
-        (it.order_id && it.order_id.toLowerCase().includes(term))
-      );
-    });
-  }, [collection, searchTerm, masterOrders, masterProducts, masterCustomers]);
+  useEffect(() => {
+    loadMetrics();
+  }, []);
 
-  const activeFilteredData = getActiveList();
-  const pagedItems = activeFilteredData.slice((page - 1) * 10, page * 10);
-  const totalCount = activeFilteredData.length;
-
-  // Compute category totals
-  const totalCatRevenue = catTrends.reduce((sum, t) => sum + t.revenueINR, 0);
-  const totalCatUnits = catTrends.reduce((sum, t) => sum + t.unitsSold, 0);
-  const totalCatOrders = catTrends.reduce((sum, t) => sum + t.orderCount, 0);
-  const avgCatBasket = totalCatOrders > 0 ? Math.round(totalCatRevenue / totalCatOrders) : 0;
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // CRUD Operations
   const handleOpenAdd = () => {
     setEditingItem(null);
-    if (collection === 'orders') {
-      setFormData({ object_name: '', customer_name: '', order_status: 'delivered', price_inr: '2500' });
+    if (collection === 'customers') {
+      setFormData({ customer_city: 'sao paulo', customer_state: 'SP', customer_zip_code_prefix: '1000' });
     } else if (collection === 'products') {
-      setFormData({ object_name: '', product_category_name_english: 'furniture_decor', product_weight_g: '500' });
-    } else if (collection === 'customers') {
-      setFormData({ customer_name: '', customer_city: 'Mumbai', customer_state: 'MH', customer_zip_code_prefix: '400001' });
+      setFormData({ product_category_name_english: categoryList[0] || 'sports_leisure', product_weight_g: 500 });
+    } else if (collection === 'orders') {
+      setFormData({ order_status: 'delivered', price_inr: 2500 });
     }
     setIsModalOpen(true);
   };
 
   const handleOpenEdit = (item) => {
     setEditingItem(item);
-    if (collection === 'orders') {
+    if (collection === 'customers') {
       setFormData({
-        object_name: item.object_name || '',
-        customer_name: item.customer_name || '',
-        order_status: item.order_status || 'delivered',
-        price_inr: item.price_inr || 2000
+        customer_city: item.customer_city || '',
+        customer_state: item.customer_state || '',
+        customer_zip_code_prefix: item.customer_zip_code_prefix || ''
       });
     } else if (collection === 'products') {
       setFormData({
-        object_name: item.object_name || '',
-        product_category_name_english: item.product_category_name_english || '',
-        product_weight_g: item.product_weight_g || 500
+        product_category_name_english: item.product_category_name_english || item.product_category_name || '',
+        product_weight_g: item.product_weight_g || 0
       });
-    } else if (collection === 'customers') {
+    } else if (collection === 'orders') {
+      const price = item.items && item.items[0] ? Math.round(item.items[0].price * BRL_TO_INR) : 2000;
       setFormData({
-        customer_name: item.customer_name || '',
-        customer_city: item.customer_city || '',
-        customer_state: item.customer_state || ''
+        order_status: item.order_status || 'delivered',
+        price_inr: price
       });
     }
     setIsModalOpen(true);
@@ -193,50 +162,44 @@ export default function App() {
   const handleSubmitForm = async (e) => {
     e.preventDefault();
     const isEdit = Boolean(editingItem);
+    const identifier = editingItem ? (editingItem.order_id || editingItem.product_id || editingItem.customer_id || editingItem._id) : '';
+    const url = isEdit ? `${API_BASE_URL}/api/data/${collection}/${identifier}` : `${API_BASE_URL}/api/data/${collection}`;
+    const method = isEdit ? 'PUT' : 'POST';
 
-    if (collection === 'orders') {
-      if (isEdit) {
-        setMasterOrders(prev => prev.map(o => o.order_id === editingItem.order_id ? { ...o, ...formData } : o));
-      } else {
-        const newRecord = { order_id: `ord_${Date.now().toString().slice(-5)}`, ...formData, price_inr: Number(formData.price_inr) };
-        setMasterOrders(prev => [newRecord, ...prev]);
-      }
-    } else if (collection === 'products') {
-      if (isEdit) {
-        setMasterProducts(prev => prev.map(p => p.product_id === editingItem.product_id ? { ...p, ...formData } : p));
-      } else {
-        const newRecord = { product_id: `prod_${Date.now().toString().slice(-4)}`, ...formData };
-        setMasterProducts(prev => [newRecord, ...prev]);
-      }
-    } else if (collection === 'customers') {
-      if (isEdit) {
-        setMasterCustomers(prev => prev.map(c => c.customer_id === editingItem.customer_id ? { ...c, ...formData } : c));
-      } else {
-        const newRecord = { customer_id: `cust_${Date.now().toString().slice(-4)}`, ...formData };
-        setMasterCustomers(prev => [newRecord, ...prev]);
-      }
-    }
-
-    setFeedback({ msg: isEdit ? 'Record updated successfully!' : 'New record added to database!', isError: false });
-    setIsModalOpen(false);
-
-    // Also sync to backend in background
     try {
-      fetch(`${API_BASE_URL}/api/data/${collection}`, {
-        method: 'POST',
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
-      }).catch(() => {});
-    } catch {}
+      });
+      if (res.ok) {
+        setFeedback({ msg: isEdit ? 'Record updated in MongoDB Atlas!' : 'Record inserted into MongoDB!', isError: false });
+        setIsModalOpen(false);
+        loadData();
+        loadMetrics();
+      } else {
+        setFeedback({ msg: 'Database operation failed', isError: true });
+      }
+    } catch (err) {
+      setFeedback({ msg: 'Network error communicating with MongoDB', isError: true });
+    }
   };
 
-  const handleDelete = (id) => {
-    if (!window.confirm('Delete this record?')) return;
-    if (collection === 'orders') setMasterOrders(prev => prev.filter(o => o.order_id !== id));
-    if (collection === 'products') setMasterProducts(prev => prev.filter(p => p.product_id !== id));
-    if (collection === 'customers') setMasterCustomers(prev => prev.filter(c => c.customer_id !== id));
-    setFeedback({ msg: 'Record removed successfully!', isError: false });
+  const handleDelete = async (id) => {
+    if (!window.confirm(`Delete record ${id} from MongoDB?`)) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/data/${collection}/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setFeedback({ msg: `Document removed from MongoDB!`, isError: false });
+        loadData();
+        loadMetrics();
+      }
+    } catch {
+      setFeedback({ msg: 'Delete failed', isError: true });
+    }
   };
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / 10));
 
   const navBtnStyle = (pageKey) => ({
     padding: '8px 16px',
@@ -252,7 +215,7 @@ export default function App() {
   return (
     <div style={{ backgroundColor: '#09090b', minHeight: '100vh', padding: '24px', color: '#fafafa', fontFamily: 'Inter, system-ui, sans-serif' }}>
       
-      {/* Navigation Header */}
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '22px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -260,7 +223,7 @@ export default function App() {
             <h1 style={{ margin: 0, fontSize: '24px', color: '#f4f4f5', fontWeight: 800 }}>Olist E-Commerce Sales Platform</h1>
           </div>
           <p style={{ margin: '4px 0 0 18px', color: '#71717a', fontSize: '13px' }}>
-            Enterprise Data Intelligence • Standardized in Indian Rupee (₹) • Live Database CRUD
+            Connected to Database: <code style={{ color: PALETTE.emerald }}>olist_analytics</code> • Live Ingested Records
           </p>
         </div>
 
@@ -288,7 +251,7 @@ export default function App() {
       )}
 
       {/* ========================================================================= */}
-      {/* 1. DATABASE CRUD TAB */}
+      {/* 1. REAL DATABASE CRUD TAB */}
       {/* ========================================================================= */}
       {activePage === 'crud_data' && (
         <>
@@ -301,102 +264,110 @@ export default function App() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '20px' }}>
             <div onClick={() => { setCollection('orders'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'orders' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'orders' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: ORDERS</div>
-              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>99,442 Documents</div>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.orderCount.toLocaleString('en-IN')} Documents</div>
             </div>
             <div onClick={() => { setCollection('products'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'products' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'products' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: PRODUCTS</div>
-              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>32,951 Documents</div>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.productCount.toLocaleString('en-IN')} Documents</div>
             </div>
             <div onClick={() => { setCollection('customers'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'customers' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'customers' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: CUSTOMERS</div>
-              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>1,98,882 Documents</div>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.customerCount.toLocaleString('en-IN')} Documents</div>
             </div>
           </div>
 
           <div style={{ background: '#121215', padding: '14px', borderRadius: '10px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(255,255,255,0.06)' }}>
             <input
               type="text"
-              placeholder={`Search ${collection} (e.g. 'aline', 'watch', 'delivered')...`}
+              placeholder={`Search ${collection} by ID, City, State, or Category...`}
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
               style={{ padding: '8px 14px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '8px', width: '380px' }}
             />
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <span style={{ fontSize: '13px', color: '#71717a' }}>Showing {totalCount} matching | Page {page}</span>
-              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Previous</button>
-              <button disabled={page * 10 >= totalCount} onClick={() => setPage(p => p + 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Next</button>
+              <span style={{ fontSize: '13px', color: '#71717a' }}>
+                {loading ? 'Querying MongoDB...' : `Total: ${totalCount.toLocaleString('en-IN')} documents | Page ${page} of ${totalPages}`}
+              </span>
+              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: page <= 1 ? 'not-allowed' : 'pointer' }}>Previous</button>
+              <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}>Next</button>
             </div>
           </div>
 
           <div style={{ background: '#121215', borderRadius: '10px', overflowX: 'auto', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
               <thead>
                 <tr style={{ background: '#18181b', borderBottom: '1px solid #27272a', color: '#a1a1aa' }}>
-                  {collection === 'orders' && (
+                  {collection === 'customers' && (
                     <>
-                      <th style={{ padding: '12px' }}>Object Name</th>
-                      <th style={{ padding: '12px' }}>Customer Name</th>
-                      <th style={{ padding: '12px' }}>Status</th>
-                      <th style={{ padding: '12px' }}>Total Amount (₹)</th>
+                      <th style={{ padding: '12px' }}>Customer ID</th>
+                      <th style={{ padding: '12px' }}>Unique ID Hash</th>
+                      <th style={{ padding: '12px' }}>City</th>
+                      <th style={{ padding: '12px' }}>State</th>
+                      <th style={{ padding: '12px' }}>Zip Prefix</th>
                       <th style={{ padding: '12px' }}>Actions</th>
                     </>
                   )}
                   {collection === 'products' && (
                     <>
-                      <th style={{ padding: '12px' }}>Object Name</th>
-                      <th style={{ padding: '12px' }}>Category Name</th>
-                      <th style={{ padding: '12px' }}>Weight</th>
+                      <th style={{ padding: '12px' }}>Product ID</th>
+                      <th style={{ padding: '12px' }}>English Category</th>
+                      <th style={{ padding: '12px' }}>Raw Category</th>
+                      <th style={{ padding: '12px' }}>Weight (g)</th>
                       <th style={{ padding: '12px' }}>Actions</th>
                     </>
                   )}
-                  {collection === 'customers' && (
+                  {collection === 'orders' && (
                     <>
-                      <th style={{ padding: '12px' }}>Customer Name</th>
-                      <th style={{ padding: '12px' }}>City</th>
-                      <th style={{ padding: '12px' }}>State</th>
-                      <th style={{ padding: '12px' }}>Zip Code</th>
+                      <th style={{ padding: '12px' }}>Order ID</th>
+                      <th style={{ padding: '12px' }}>Customer Ref</th>
+                      <th style={{ padding: '12px' }}>Status</th>
+                      <th style={{ padding: '12px' }}>Purchase Timestamp</th>
+                      <th style={{ padding: '12px' }}>Price (₹)</th>
                       <th style={{ padding: '12px' }}>Actions</th>
                     </>
                   )}
                 </tr>
               </thead>
               <tbody>
-                {pagedItems.length === 0 ? (
+                {items.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: '#71717a' }}>No matching records found for "{searchTerm}".</td>
+                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#71717a' }}>No records found in MongoDB matching the query.</td>
                   </tr>
                 ) : (
-                  pagedItems.map((it, idx) => {
-                    const uniqueId = it.order_id || it.product_id || it.customer_id;
+                  items.map((it, idx) => {
+                    const uniqueId = it.order_id || it.product_id || it.customer_id || it._id;
                     return (
-                      <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <tr key={uniqueId || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        {collection === 'customers' && (
+                          <>
+                            <td style={{ padding: '12px', fontFamily: 'monospace', color: '#38bdf8' }}>{it.customer_id}</td>
+                            <td style={{ padding: '12px', fontFamily: 'monospace', color: '#a1a1aa' }}>{it.customer_unique_id || 'N/A'}</td>
+                            <td style={{ padding: '12px', fontWeight: 600, color: '#fafafa' }}>{it.customer_city}</td>
+                            <td style={{ padding: '12px', fontWeight: 'bold', color: PALETTE.gold }}>{it.customer_state}</td>
+                            <td style={{ padding: '12px' }}>{it.customer_zip_code_prefix}</td>
+                          </>
+                        )}
+                        {collection === 'products' && (
+                          <>
+                            <td style={{ padding: '12px', fontFamily: 'monospace', color: '#38bdf8' }}>{it.product_id}</td>
+                            <td style={{ padding: '12px', fontWeight: 600, color: '#fafafa' }}>{it.product_category_name_english || 'general'}</td>
+                            <td style={{ padding: '12px', color: '#a1a1aa' }}>{it.product_category_name || '-'}</td>
+                            <td style={{ padding: '12px' }}>{it.product_weight_g || 0} g</td>
+                          </>
+                        )}
                         {collection === 'orders' && (
                           <>
-                            <td style={{ padding: '12px', fontWeight: 600, color: '#38bdf8' }}>{it.object_name}</td>
-                            <td style={{ padding: '12px', fontWeight: 500, color: '#fafafa' }}>{it.customer_name}</td>
+                            <td style={{ padding: '12px', fontFamily: 'monospace', color: '#38bdf8' }}>{it.order_id}</td>
+                            <td style={{ padding: '12px', fontFamily: 'monospace', color: '#a1a1aa' }}>{it.customer_id}</td>
                             <td style={{ padding: '12px' }}>
                               <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '11px', background: it.order_status === 'delivered' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)', color: it.order_status === 'delivered' ? PALETTE.emerald : PALETTE.gold }}>
                                 {it.order_status}
                               </span>
                             </td>
+                            <td style={{ padding: '12px', color: '#a1a1aa' }}>{it.order_purchase_timestamp || '-'}</td>
                             <td style={{ padding: '12px', fontWeight: 'bold', color: '#fafafa' }}>
-                              ₹{it.price_inr ? Number(it.price_inr).toLocaleString('en-IN') : (it.items ? Math.round(it.items[0].price * BRL_TO_INR).toLocaleString('en-IN') : '2,840')}
+                              {it.items && it.items[0] ? formatRupee(Math.round(it.items[0].price * BRL_TO_INR)) : '₹2,500'}
                             </td>
-                          </>
-                        )}
-                        {collection === 'products' && (
-                          <>
-                            <td style={{ padding: '12px', fontWeight: 600, color: '#38bdf8' }}>{it.object_name}</td>
-                            <td style={{ padding: '12px' }}>{it.product_category_name_english}</td>
-                            <td style={{ padding: '12px' }}>{it.product_weight_g} g</td>
-                          </>
-                        )}
-                        {collection === 'customers' && (
-                          <>
-                            <td style={{ padding: '12px', fontWeight: 600, color: '#fafafa' }}>{it.customer_name}</td>
-                            <td style={{ padding: '12px' }}>{it.customer_city}</td>
-                            <td style={{ padding: '12px', fontWeight: 'bold', color: PALETTE.gold }}>{it.customer_state}</td>
-                            <td style={{ padding: '12px' }}>{it.customer_zip_code_prefix}</td>
                           </>
                         )}
                         <td style={{ padding: '12px' }}>
@@ -418,7 +389,7 @@ export default function App() {
       )}
 
       {/* ========================================================================= */}
-      {/* 2. CATEGORY EXPLORER TAB */}
+      {/* 2. CATEGORY EXPLORER TAB (LIVE MONGODB AGGREGATIONS) */}
       {/* ========================================================================= */}
       {activePage === 'category_analysis' && (
         <div>
@@ -427,7 +398,7 @@ export default function App() {
 
             <label style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               Category:
-              <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} style={{ padding: '6px 12px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', minWidth: '180px' }}>
+              <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} style={{ padding: '6px 12px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', minWidth: '200px' }}>
                 {categoryList.map((cat, i) => (
                   <option key={i} value={cat}>{cat}</option>
                 ))}
@@ -443,24 +414,26 @@ export default function App() {
                 <option value="2018">2018</option>
               </select>
             </label>
+
+            {catLoading && <span style={{ color: PALETTE.gold, fontSize: '12px' }}>● Running MongoDB aggregation...</span>}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
             <div style={{ background: '#121215', padding: '18px', borderRadius: '10px', borderLeft: `4px solid ${PALETTE.emerald}` }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>CATEGORY REVENUE (INR)</div>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fafafa', marginTop: '6px' }}>{formatRupee(totalCatRevenue)}</div>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fafafa', marginTop: '6px' }}>{formatRupee(catSummary.totalRevenueINR)}</div>
             </div>
             <div style={{ background: '#121215', padding: '18px', borderRadius: '10px', borderLeft: `4px solid ${PALETTE.cyan}` }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>TOTAL UNITS SOLD</div>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fafafa', marginTop: '6px' }}>{totalCatUnits.toLocaleString('en-IN')} units</div>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fafafa', marginTop: '6px' }}>{(catSummary.totalUnitsSold || 0).toLocaleString('en-IN')} units</div>
             </div>
             <div style={{ background: '#121215', padding: '18px', borderRadius: '10px', borderLeft: `4px solid ${PALETTE.gold}` }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>TOTAL TRANSACTIONS</div>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fafafa', marginTop: '6px' }}>{totalCatOrders.toLocaleString('en-IN')} orders</div>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fafafa', marginTop: '6px' }}>{(catSummary.totalOrders || 0).toLocaleString('en-IN')} orders</div>
             </div>
             <div style={{ background: '#121215', padding: '18px', borderRadius: '10px', borderLeft: `4px solid ${PALETTE.coral}` }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>AVERAGE BASKET SIZE</div>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fafafa', marginTop: '6px' }}>{formatRupee(avgCatBasket)}</div>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fafafa', marginTop: '6px' }}>{formatRupee(catSummary.avgBasketINR)}</div>
             </div>
           </div>
 
@@ -518,19 +491,19 @@ export default function App() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '22px' }}>
             <div style={{ background: '#121215', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 700 }}>GROSS SALES REVENUE</div>
-              <div style={{ fontSize: '26px', fontWeight: 800, color: '#fafafa', marginTop: '8px' }}>₹1,84,50,000</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, color: '#fafafa', marginTop: '8px' }}>{formatRupee(dashboardSummary.totalRevenueINR)}</div>
             </div>
             <div style={{ background: '#121215', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 700 }}>TOTAL UNITS SOLD</div>
-              <div style={{ fontSize: '26px', fontWeight: 800, color: '#fafafa', marginTop: '8px' }}>9,840 units</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, color: '#fafafa', marginTop: '8px' }}>{dashboardSummary.totalUnits.toLocaleString('en-IN')} units</div>
             </div>
             <div style={{ background: '#121215', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 700 }}>TRANSACTION VOLUME</div>
-              <div style={{ fontSize: '26px', fontWeight: 800, color: '#fafafa', marginTop: '8px' }}>8,250 orders</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, color: '#fafafa', marginTop: '8px' }}>{dashboardSummary.totalOrders.toLocaleString('en-IN')} orders</div>
             </div>
             <div style={{ background: '#121215', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 700 }}>AVERAGE ORDER VALUE</div>
-              <div style={{ fontSize: '26px', fontWeight: 800, color: '#fafafa', marginTop: '8px' }}>₹2,236</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, color: '#fafafa', marginTop: '8px' }}>{formatRupee(dashboardSummary.avgBasketINR)}</div>
             </div>
           </div>
 
@@ -538,7 +511,7 @@ export default function App() {
             <h3 style={{ margin: '0 0 14px 0', fontSize: '16px', color: '#f4f4f5' }}>Revenue Velocity & Order Trajectory</h3>
             <div style={{ width: '100%', height: '320px', minHeight: '320px' }}>
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={catTrends}>
+                <AreaChart data={salesTrends}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                   <XAxis dataKey="period" stroke="#71717a" tick={{ fontSize: 11 }} />
                   <YAxis yAxisId="left" stroke={PALETTE.emerald} tickFormatter={(v) => `₹${(v / 100000).toFixed(0)}L`} />
@@ -546,7 +519,7 @@ export default function App() {
                   <Tooltip formatter={(v, name) => (name.includes('Revenue') ? formatRupee(v) : v)} contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px' }} />
                   <Legend />
                   <Area yAxisId="left" type="monotone" dataKey="revenueINR" name="Revenue (₹)" stroke={PALETTE.emerald} fill={PALETTE.emerald} fillOpacity={0.2} strokeWidth={2.5} />
-                  <Area yAxisId="right" type="monotone" dataKey="orderCount" name="Order Volume" stroke={PALETTE.gold} fill={PALETTE.gold} fillOpacity={0.1} strokeWidth={2} />
+                  <Area yAxisId="right" type="monotone" dataKey="orders" name="Order Volume" stroke={PALETTE.gold} fill={PALETTE.gold} fillOpacity={0.1} strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -554,22 +527,44 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Dialog */}
+      {/* Modal Dialog for Ingestion */}
       {isModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
           <div style={{ background: '#121215', padding: '24px', borderRadius: '12px', width: '420px', border: '1px solid #27272a' }}>
-            <h3 style={{ margin: '0 0 16px 0', color: PALETTE.emerald }}>{editingItem ? 'Edit ' : 'Add New '} {collection.slice(0, -1).toUpperCase()}</h3>
+            <h3 style={{ margin: '0 0 16px 0', color: PALETTE.emerald }}>{editingItem ? 'Edit Document in ' : 'Insert Document into '} {collection.toUpperCase()}</h3>
             <form onSubmit={handleSubmitForm}>
-              {collection === 'orders' && (
+              {collection === 'customers' && (
                 <>
                   <div style={{ marginBottom: '12px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Object / Product Name:</label>
-                    <input type="text" value={formData.object_name || ''} onChange={e => setFormData({ ...formData, object_name: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>City:</label>
+                    <input type="text" value={formData.customer_city || ''} onChange={e => setFormData({ ...formData, customer_city: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
                   </div>
                   <div style={{ marginBottom: '12px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Customer Name:</label>
-                    <input type="text" value={formData.customer_name || ''} onChange={e => setFormData({ ...formData, customer_name: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>State:</label>
+                    <input type="text" value={formData.customer_state || ''} onChange={e => setFormData({ ...formData, customer_state: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
                   </div>
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Zip Code Prefix:</label>
+                    <input type="text" value={formData.customer_zip_code_prefix || ''} onChange={e => setFormData({ ...formData, customer_zip_code_prefix: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
+                  </div>
+                </>
+              )}
+
+              {collection === 'products' && (
+                <>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Category (English):</label>
+                    <input type="text" value={formData.product_category_name_english || ''} onChange={e => setFormData({ ...formData, product_category_name_english: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
+                  </div>
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Weight (g):</label>
+                    <input type="number" value={formData.product_weight_g || ''} onChange={e => setFormData({ ...formData, product_weight_g: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
+                  </div>
+                </>
+              )}
+
+              {collection === 'orders' && (
+                <>
                   <div style={{ marginBottom: '12px' }}>
                     <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Status:</label>
                     <select value={formData.order_status || 'delivered'} onChange={e => setFormData({ ...formData, order_status: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }}>
@@ -580,49 +575,15 @@ export default function App() {
                     </select>
                   </div>
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Amount in Rupees (₹):</label>
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Amount (₹):</label>
                     <input type="number" value={formData.price_inr || ''} onChange={e => setFormData({ ...formData, price_inr: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
-                  </div>
-                </>
-              )}
-
-              {collection === 'products' && (
-                <>
-                  <div style={{ marginBottom: '12px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Object / Product Name:</label>
-                    <input type="text" value={formData.object_name || ''} onChange={e => setFormData({ ...formData, object_name: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
-                  </div>
-                  <div style={{ marginBottom: '12px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Category Name:</label>
-                    <input type="text" value={formData.product_category_name_english || ''} onChange={e => setFormData({ ...formData, product_category_name_english: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
-                  </div>
-                  <div style={{ marginBottom: '16px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Weight (g):</label>
-                    <input type="number" value={formData.product_weight_g || ''} onChange={e => setFormData({ ...formData, product_weight_g: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
-                  </div>
-                </>
-              )}
-
-              {collection === 'customers' && (
-                <>
-                  <div style={{ marginBottom: '12px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Customer Name:</label>
-                    <input type="text" value={formData.customer_name || ''} onChange={e => setFormData({ ...formData, customer_name: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
-                  </div>
-                  <div style={{ marginBottom: '12px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>City:</label>
-                    <input type="text" value={formData.customer_city || ''} onChange={e => setFormData({ ...formData, customer_city: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
-                  </div>
-                  <div style={{ marginBottom: '16px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>State:</label>
-                    <input type="text" value={formData.customer_state || ''} onChange={e => setFormData({ ...formData, customer_state: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
                   </div>
                 </>
               )}
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                 <button type="button" onClick={() => setIsModalOpen(false)} style={{ padding: '8px 16px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Cancel</button>
-                <button type="submit" style={{ padding: '8px 16px', background: PALETTE.emerald, color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Save Changes</button>
+                <button type="submit" style={{ padding: '8px 16px', background: PALETTE.emerald, color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Save to MongoDB</button>
               </div>
             </form>
           </div>
