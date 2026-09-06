@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend
 } from 'recharts';
 
 const BRL_TO_INR = 18.0;
+
+// Production Render backend URL with local fallback
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bda-olist-performance.onrender.com';
 
 const formatRupee = (num) => {
@@ -16,11 +18,8 @@ const PALETTE = {
   emerald: '#10b981',
   gold: '#fbbf24',
   cyan: '#06b6d4',
-  coral: '#f43f5e',
-  violet: '#8b5cf6'
+  coral: '#f43f5e'
 };
-
-const PAYMENT_COLORS = [PALETTE.emerald, PALETTE.gold, PALETTE.cyan, PALETTE.violet];
 
 export default function App() {
   const [activePage, setActivePage] = useState('crud_data');
@@ -58,8 +57,7 @@ export default function App() {
     summary: { totalRevenueINR: 18450000, totalUnits: 9840, totalOrders: 8250, avgBasketINR: 2236 },
     salesTrends: [],
     topProducts: [],
-    categoryWiseRevenue: [],
-    paymentBreakdown: []
+    categoryWiseRevenue: []
   });
 
   const handleExportPDF = () => {
@@ -68,7 +66,7 @@ export default function App() {
 
   // Load Dashboard Data
   useEffect(() => {
-    fetch('http://localhost:5000/api/analytics/visual-dashboard')
+    fetch(`${API_BASE_URL}/api/analytics/visual-dashboard`)
       .then(r => r.json())
       .then(d => setDashboardData(d))
       .catch(() => {});
@@ -76,7 +74,7 @@ export default function App() {
 
   // Fetch Category List
   useEffect(() => {
-    fetch('http://localhost:5000/api/analytics/categories-list')
+    fetch(`${API_BASE_URL}/api/analytics/categories-list`)
       .then(r => r.json())
       .then(d => {
         if (Array.isArray(d) && d.length > 0) setCategoryList(d);
@@ -87,7 +85,7 @@ export default function App() {
   // Fetch Category & Year Analytics
   useEffect(() => {
     setAnalysisLoading(true);
-    fetch(`http://localhost:5000/api/analytics/category-year-insights?category=${encodeURIComponent(selectedCategory)}&year=${selectedYear}`)
+    fetch(`${API_BASE_URL}/api/analytics/category-year-insights?category=${encodeURIComponent(selectedCategory)}&year=${selectedYear}`)
       .then(r => r.json())
       .then(res => {
         if (res && res.trends) {
@@ -101,7 +99,7 @@ export default function App() {
 
   // Load Metrics
   const loadMetrics = () => {
-    fetch('http://localhost:5000/api/metrics')
+    fetch(`${API_BASE_URL}/api/metrics`)
       .then(r => r.json())
       .then(d => setMetrics(d))
       .catch(() => {});
@@ -109,7 +107,7 @@ export default function App() {
 
   // Load CRUD Data
   const loadData = useCallback(() => {
-    fetch(`http://localhost:5000/api/data/${collection}?page=${page}&limit=10&search=${encodeURIComponent(searchTerm)}`)
+    fetch(`${API_BASE_URL}/api/data/${collection}?page=${page}&limit=10&search=${encodeURIComponent(searchTerm)}`)
       .then(r => r.json())
       .then(res => {
         setItems(res.data || []);
@@ -156,7 +154,7 @@ export default function App() {
     e.preventDefault();
     const isEdit = Boolean(editingItem);
     const identifier = editingItem ? (editingItem.order_id || editingItem.product_id || editingItem.customer_id || editingItem._id) : '';
-    const url = isEdit ? `http://localhost:5000/api/data/${collection}/${identifier}` : `http://localhost:5000/api/data/${collection}`;
+    const url = isEdit ? `${API_BASE_URL}/api/data/${collection}/${identifier}` : `${API_BASE_URL}/api/data/${collection}`;
     const method = isEdit ? 'PUT' : 'POST';
 
     try {
@@ -179,7 +177,7 @@ export default function App() {
   const handleDelete = async (id) => {
     if (!window.confirm(`Delete this record from MongoDB?`)) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/data/${collection}/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE_URL}/api/data/${collection}/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setFeedback({ msg: `Record deleted successfully!`, isError: false });
         loadData();
@@ -274,9 +272,6 @@ export default function App() {
             font-size: 10px !important;
             padding: 8px 10px !important;
           }
-          .recharts-responsive-container {
-            filter: grayscale(15%) contrast(110%);
-          }
         }
       `}</style>
 
@@ -302,7 +297,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Screen Interactive Navigation Header (Auto-hidden in Print) */}
+      {/* Screen Interactive Navigation Header */}
       <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '22px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -500,7 +495,6 @@ export default function App() {
             {analysisLoading && <span style={{ color: PALETTE.gold, fontSize: '12px' }}>● Updating metrics...</span>}
           </div>
 
-          {/* Dynamic Metric Cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
             <div className="pdf-card" style={{ background: '#121215', padding: '18px', borderRadius: '10px', borderLeft: `4px solid ${PALETTE.emerald}` }}>
               <div className="pdf-kpi-lbl" style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>CATEGORY REVENUE (INR)</div>
@@ -520,7 +514,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Dynamic Charts */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(460px, 1fr))', gap: '20px', marginBottom: '24px' }}>
             <div className="pdf-card" style={{ background: '#121215', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
               <h3 style={{ margin: '0 0 14px 0', fontSize: '15px' }}>
@@ -565,7 +558,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Granular Breakdown Table */}
           <div className="pdf-card" style={{ background: '#121215', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
             <h3 style={{ margin: '0 0 14px 0', fontSize: '15px' }}>Monthly Granular Breakdown Data</h3>
             <div style={{ overflowX: 'auto' }}>
@@ -640,7 +632,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Formal Footer: Visible ONLY in Generated PDF Report */}
+      {/* Formal Footer */}
       <div className="print-only" style={{ marginTop: '24px', borderTop: '1px solid #cbd5e1', paddingTop: '10px', display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#64748b' }}>
         <span>CONFIDENTIAL • FOR INTERNAL AUDIT & MANAGEMENT REVIEW ONLY</span>
         <span>PAGE 1 OF 1</span>
