@@ -5,9 +5,7 @@ import {
 } from 'recharts';
 
 const BRL_TO_INR = 18.0;
-
-// Connects to Render in production, localhost in development
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://bda-olist-performance.onrender.com';
+const API_BASE_URL = 'http://localhost:5000';
 
 const formatRupee = (num) => {
   if (num === undefined || num === null || isNaN(num)) return '₹0';
@@ -24,8 +22,8 @@ const PALETTE = {
 export default function App() {
   const [activePage, setActivePage] = useState('crud_data');
 
-  // Exact Document Counts from MongoDB Atlas
-  const [metrics, setMetrics] = useState({ orderCount: 99442, productCount: 32951, customerCount: 198882 });
+  // Exact Collection Counts
+  const [metrics, setMetrics] = useState({ orderCount: 0, productCount: 0, customerCount: 0 });
 
   // CRUD Table States
   const [collection, setCollection] = useState('customers');
@@ -36,7 +34,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState({ msg: '', isError: false });
 
-  // Modal Dialog Form States
+  // Form Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({});
@@ -49,21 +47,19 @@ export default function App() {
   const [catTrends, setCatTrends] = useState([]);
   const [catLoading, setCatLoading] = useState(false);
 
-  // Analytics Dashboard States
+  // Visual Dashboard States
   const [dashboardSummary, setDashboardSummary] = useState({ totalRevenueINR: 0, totalUnits: 0, totalOrders: 0, avgBasketINR: 0 });
   const [salesTrends, setSalesTrends] = useState([]);
 
-  // Fetch metrics from MongoDB
+  // Fetch Total Document Metrics
   const loadMetrics = () => {
     fetch(`${API_BASE_URL}/api/metrics`)
       .then(r => r.json())
-      .then(d => {
-        if (d && d.orderCount) setMetrics(d);
-      })
+      .then(d => setMetrics(d))
       .catch(() => {});
   };
 
-  // Fetch paginated documents from MongoDB Atlas
+  // Fetch Paginated Records
   const loadData = useCallback(() => {
     setLoading(true);
     fetch(`${API_BASE_URL}/api/data/${collection}?page=${page}&limit=10&search=${encodeURIComponent(searchTerm)}`)
@@ -76,7 +72,7 @@ export default function App() {
       .catch(() => setLoading(false));
   }, [collection, page, searchTerm]);
 
-  // Fetch live categories from Atlas
+  // Fetch Categories List
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/analytics/categories-list`)
       .then(r => r.json())
@@ -89,7 +85,7 @@ export default function App() {
       .catch(() => {});
   }, []);
 
-  // Run dynamic aggregations on Category or Year change
+  // Run Category Aggregations
   useEffect(() => {
     if (!selectedCategory) return;
     setCatLoading(true);
@@ -105,7 +101,7 @@ export default function App() {
       .catch(() => setCatLoading(false));
   }, [selectedCategory, selectedYear]);
 
-  // Load overall dashboard metrics
+  // Load Dashboard Data
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/analytics/visual-dashboard`)
       .then(r => r.json())
@@ -132,7 +128,7 @@ export default function App() {
     if (collection === 'customers') {
       setFormData({ customer_city: 'sao paulo', customer_state: 'SP', customer_zip_code_prefix: '1000' });
     } else if (collection === 'products') {
-      setFormData({ product_category_name_english: categoryList[0] || 'bed_bath_table', product_weight_g: 500 });
+      setFormData({ product_category_name_english: categoryList[0] || 'sports_leisure', product_weight_g: 500 });
     } else if (collection === 'orders') {
       setFormData({ order_status: 'delivered', price_inr: 2500 });
     }
@@ -153,7 +149,7 @@ export default function App() {
         product_weight_g: item.product_weight_g || 0
       });
     } else if (collection === 'orders') {
-      const price = item.items && item.items[0] ? Math.round(item.items[0].price * BRL_TO_INR) : 2000;
+      const price = item.items && item.items[0] ? Math.round(item.items[0].price * BRL_TO_INR) : 2500;
       setFormData({
         order_status: item.order_status || 'delivered',
         price_inr: price
@@ -165,7 +161,7 @@ export default function App() {
   const handleSubmitForm = async (e) => {
     e.preventDefault();
     const isEdit = Boolean(editingItem);
-    const identifier = editingItem ? (editingItem.order_id || editingItem.product_id || editingItem.customer_id || editingItem._id) : '';
+    const identifier = editingItem ? (editingItem._id || editingItem.customer_id || editingItem.product_id || editingItem.order_id) : '';
     const url = isEdit ? `${API_BASE_URL}/api/data/${collection}/${identifier}` : `${API_BASE_URL}/api/data/${collection}`;
     const method = isEdit ? 'PUT' : 'POST';
 
@@ -175,30 +171,36 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
-      if (res.ok) {
-        setFeedback({ msg: isEdit ? 'Record updated in MongoDB Atlas!' : 'Record inserted into MongoDB Atlas!', isError: false });
+      const data = await res.json();
+      if (res.ok && (data.success || data.insertedId)) {
+        setFeedback({ msg: isEdit ? 'Document updated in MongoDB!' : 'New document added to MongoDB!', isError: false });
         setIsModalOpen(false);
         loadData();
         loadMetrics();
       } else {
-        setFeedback({ msg: 'Database operation failed', isError: true });
+        setFeedback({ msg: `Operation failed: ${data.error || 'Server rejected request'}`, isError: true });
       }
-    } catch {
-      setFeedback({ msg: 'Network error connecting to backend', isError: true });
+    } catch (err) {
+      setFeedback({ msg: `Network error: ${err.message}`, isError: true });
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm(`Delete record ${id} from MongoDB Atlas?`)) return;
+  const handleDelete = async (item) => {
+    const identifier = item._id || item.customer_id || item.product_id || item.order_id;
+    if (!window.confirm(`Permanently delete record (${identifier}) from MongoDB?`)) return;
+
     try {
-      const res = await fetch(`${API_BASE_URL}/api/data/${collection}/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        setFeedback({ msg: `Document removed from Atlas!`, isError: false });
+      const res = await fetch(`${API_BASE_URL}/api/data/${collection}/${identifier}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setFeedback({ msg: 'Document successfully deleted from MongoDB!', isError: false });
         loadData();
         loadMetrics();
+      } else {
+        setFeedback({ msg: `Delete failed: ${data.error || 'Document not found'}`, isError: true });
       }
-    } catch {
-      setFeedback({ msg: 'Delete failed', isError: true });
+    } catch (err) {
+      setFeedback({ msg: `Network error during delete: ${err.message}`, isError: true });
     }
   };
 
@@ -218,7 +220,7 @@ export default function App() {
   return (
     <div style={{ backgroundColor: '#09090b', minHeight: '100vh', padding: '24px', color: '#fafafa', fontFamily: 'Inter, system-ui, sans-serif' }}>
       
-      {/* Header */}
+      {/* Top Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '22px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -226,7 +228,7 @@ export default function App() {
             <h1 style={{ margin: 0, fontSize: '24px', color: '#f4f4f5', fontWeight: 800 }}>Olist E-Commerce Sales Platform</h1>
           </div>
           <p style={{ margin: '4px 0 0 18px', color: '#71717a', fontSize: '13px' }}>
-            Connected to Atlas Database: <code style={{ color: PALETTE.emerald }}>olist_analytics</code> • Standardized in INR (₹)
+            Connected Database: <code style={{ color: PALETTE.emerald }}>olist_analytics</code> • Live Ingested Records
           </p>
         </div>
 
@@ -265,17 +267,17 @@ export default function App() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '20px' }}>
-            <div onClick={() => { setCollection('orders'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'orders' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'orders' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
-              <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: ORDERS</div>
-              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.orderCount.toLocaleString('en-IN')} Documents</div>
+            <div onClick={() => { setCollection('customers'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'customers' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'customers' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: CUSTOMERS</div>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.customerCount.toLocaleString('en-IN')} Documents</div>
             </div>
             <div onClick={() => { setCollection('products'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'products' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'products' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: PRODUCTS</div>
               <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.productCount.toLocaleString('en-IN')} Documents</div>
             </div>
-            <div onClick={() => { setCollection('customers'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'customers' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'customers' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
-              <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: CUSTOMERS</div>
-              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.customerCount.toLocaleString('en-IN')} Documents</div>
+            <div onClick={() => { setCollection('orders'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'orders' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'orders' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: ORDERS</div>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.orderCount.toLocaleString('en-IN')} Documents</div>
             </div>
           </div>
 
@@ -289,7 +291,7 @@ export default function App() {
             />
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
               <span style={{ fontSize: '13px', color: '#71717a' }}>
-                {loading ? 'Querying Atlas...' : `Total: ${totalCount.toLocaleString('en-IN')} documents | Page ${page} of ${totalPages}`}
+                {loading ? 'Querying MongoDB...' : `Total: ${totalCount.toLocaleString('en-IN')} documents | Page ${page} of ${totalPages}`}
               </span>
               <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: page <= 1 ? 'not-allowed' : 'pointer' }}>Previous</button>
               <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}>Next</button>
@@ -334,56 +336,53 @@ export default function App() {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#71717a' }}>No records found in Atlas matching the query.</td>
+                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#71717a' }}>No records found in MongoDB matching the query.</td>
                   </tr>
                 ) : (
-                  items.map((it, idx) => {
-                    const uniqueId = it.order_id || it.product_id || it.customer_id || it._id;
-                    return (
-                      <tr key={uniqueId || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                        {collection === 'customers' && (
-                          <>
-                            <td style={{ padding: '12px', fontFamily: 'monospace', color: '#38bdf8' }}>{it.customer_id}</td>
-                            <td style={{ padding: '12px', fontFamily: 'monospace', color: '#a1a1aa' }}>{it.customer_unique_id || 'N/A'}</td>
-                            <td style={{ padding: '12px', fontWeight: 600, color: '#fafafa' }}>{it.customer_city}</td>
-                            <td style={{ padding: '12px', fontWeight: 'bold', color: PALETTE.gold }}>{it.customer_state}</td>
-                            <td style={{ padding: '12px' }}>{it.customer_zip_code_prefix}</td>
-                          </>
-                        )}
-                        {collection === 'products' && (
-                          <>
-                            <td style={{ padding: '12px', fontFamily: 'monospace', color: '#38bdf8' }}>{it.product_id}</td>
-                            <td style={{ padding: '12px', fontWeight: 600, color: '#fafafa' }}>{it.product_category_name_english || 'general'}</td>
-                            <td style={{ padding: '12px', color: '#a1a1aa' }}>{it.product_category_name || '-'}</td>
-                            <td style={{ padding: '12px' }}>{it.product_weight_g || 0} g</td>
-                          </>
-                        )}
-                        {collection === 'orders' && (
-                          <>
-                            <td style={{ padding: '12px', fontFamily: 'monospace', color: '#38bdf8' }}>{it.order_id}</td>
-                            <td style={{ padding: '12px', fontFamily: 'monospace', color: '#a1a1aa' }}>{it.customer_id}</td>
-                            <td style={{ padding: '12px' }}>
-                              <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '11px', background: it.order_status === 'delivered' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)', color: it.order_status === 'delivered' ? PALETTE.emerald : PALETTE.gold }}>
-                                {it.order_status}
-                              </span>
-                            </td>
-                            <td style={{ padding: '12px', color: '#a1a1aa' }}>{it.order_purchase_timestamp || '-'}</td>
-                            <td style={{ padding: '12px', fontWeight: 'bold', color: '#fafafa' }}>
-                              {it.items && it.items[0] ? formatRupee(Math.round(it.items[0].price * BRL_TO_INR)) : '₹2,500'}
-                            </td>
-                          </>
-                        )}
-                        <td style={{ padding: '12px' }}>
-                          <button onClick={() => handleOpenEdit(it)} style={{ background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid #27272a', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', marginRight: '8px' }}>
-                            Edit
-                          </button>
-                          <button onClick={() => handleDelete(uniqueId)} style={{ background: 'rgba(244, 63, 94, 0.15)', color: PALETTE.coral, border: '1px solid rgba(244, 63, 94, 0.3)', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer' }}>
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
+                  items.map((it, idx) => (
+                    <tr key={it._id || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      {collection === 'customers' && (
+                        <>
+                          <td style={{ padding: '12px', fontFamily: 'monospace', color: '#38bdf8' }}>{it.customer_id}</td>
+                          <td style={{ padding: '12px', fontFamily: 'monospace', color: '#a1a1aa' }}>{it.customer_unique_id || 'N/A'}</td>
+                          <td style={{ padding: '12px', fontWeight: 600, color: '#fafafa' }}>{it.customer_city}</td>
+                          <td style={{ padding: '12px', fontWeight: 'bold', color: PALETTE.gold }}>{it.customer_state}</td>
+                          <td style={{ padding: '12px' }}>{it.customer_zip_code_prefix}</td>
+                        </>
+                      )}
+                      {collection === 'products' && (
+                        <>
+                          <td style={{ padding: '12px', fontFamily: 'monospace', color: '#38bdf8' }}>{it.product_id}</td>
+                          <td style={{ padding: '12px', fontWeight: 600, color: '#fafafa' }}>{it.product_category_name_english || 'general'}</td>
+                          <td style={{ padding: '12px', color: '#a1a1aa' }}>{it.product_category_name || '-'}</td>
+                          <td style={{ padding: '12px' }}>{it.product_weight_g || 0} g</td>
+                        </>
+                      )}
+                      {collection === 'orders' && (
+                        <>
+                          <td style={{ padding: '12px', fontFamily: 'monospace', color: '#38bdf8' }}>{it.order_id}</td>
+                          <td style={{ padding: '12px', fontFamily: 'monospace', color: '#a1a1aa' }}>{it.customer_id}</td>
+                          <td style={{ padding: '12px' }}>
+                            <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '11px', background: it.order_status === 'delivered' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)', color: it.order_status === 'delivered' ? PALETTE.emerald : PALETTE.gold }}>
+                              {it.order_status}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px', color: '#a1a1aa' }}>{it.order_purchase_timestamp || '-'}</td>
+                          <td style={{ padding: '12px', fontWeight: 'bold', color: '#fafafa' }}>
+                            {it.items && it.items[0] ? formatRupee(Math.round(it.items[0].price * BRL_TO_INR)) : '₹2,500'}
+                          </td>
+                        </>
+                      )}
+                      <td style={{ padding: '12px' }}>
+                        <button onClick={() => handleOpenEdit(it)} style={{ background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid #27272a', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', marginRight: '8px' }}>
+                          Edit
+                        </button>
+                        <button onClick={() => handleDelete(it)} style={{ background: 'rgba(244, 63, 94, 0.15)', color: PALETTE.coral, border: '1px solid rgba(244, 63, 94, 0.3)', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer' }}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
@@ -418,7 +417,7 @@ export default function App() {
               </select>
             </label>
 
-            {catLoading && <span style={{ color: PALETTE.gold, fontSize: '12px' }}>● Running aggregation on Atlas...</span>}
+            {catLoading && <span style={{ color: PALETTE.gold, fontSize: '12px' }}>● Querying MongoDB aggregations...</span>}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
@@ -487,7 +486,7 @@ export default function App() {
       )}
 
       {/* ========================================================================= */}
-      {/* 3. ANALYTICS DASHBOARD TAB */}
+      {/* 3. VISUAL ANALYTICS DASHBOARD */}
       {/* ========================================================================= */}
       {activePage === 'visual_dashboard' && (
         <div>
@@ -530,7 +529,7 @@ export default function App() {
         </div>
       )}
 
-      {/* CRUD Modal Dialog */}
+      {/* Modal Dialog */}
       {isModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
           <div style={{ background: '#121215', padding: '24px', borderRadius: '12px', width: '420px', border: '1px solid #27272a' }}>
@@ -543,7 +542,7 @@ export default function App() {
                     <input type="text" value={formData.customer_city || ''} onChange={e => setFormData({ ...formData, customer_city: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
                   </div>
                   <div style={{ marginBottom: '12px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>State:</label>
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>State (e.g. SP, MG, RJ):</label>
                     <input type="text" value={formData.customer_state || ''} onChange={e => setFormData({ ...formData, customer_state: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
                   </div>
                   <div style={{ marginBottom: '16px' }}>
