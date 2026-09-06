@@ -6,8 +6,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const MONGO_URI = 'mongodb://localhost:27017';
-const DB_NAME = 'olist_analytics';
+// Environment variables for cloud deployment with local fallbacks
+const PORT = process.env.PORT || 5000;
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017';
+const DB_NAME = process.env.DB_NAME || 'olist_analytics';
+
 let db;
 
 // 1 BRL ≈ 18 INR
@@ -43,15 +46,21 @@ function formatCategoryToObjectName(cat, id) {
     .join(' ') + ' Package';
 }
 
+// Database Connection & Server Initiation
 MongoClient.connect(MONGO_URI)
   .then(client => {
     db = client.db(DB_NAME);
-    console.log("Connected to MongoDB database: " + DB_NAME);
-    app.listen(5000, () => console.log("Backend running on http://localhost:5000"));
+    console.log(`Connected to database: ${DB_NAME}`);
+    app.listen(PORT, () => console.log(`Server actively running on port ${PORT}`));
   })
   .catch(err => {
     console.error("MongoDB Connection Failed:", err);
   });
+
+// Root Health Check Route
+app.get('/', (req, res) => {
+  res.json({ status: 'Online', database: DB_NAME, port: PORT });
+});
 
 // ==========================================
 // 1. SMART SEARCH & PAGINATED CRUD GET
@@ -68,7 +77,6 @@ app.get('/api/data/:collection', async (req, res) => {
     }
 
     if (colName === 'orders') {
-      // Pull records batch and map human names
       const rawOrders = await db.collection('orders')
         .find({})
         .limit(search !== '' ? 2500 : 300)
@@ -91,9 +99,8 @@ app.get('/api/data/:collection', async (req, res) => {
         };
       });
 
-      // Filter against Customer Name, Object Name, Order Status, and Order ID
       if (search !== '') {
-        mappedOrders = mappedOrders.filter(o => 
+        mappedOrders = mappedOrders.filter(o =>
           o.customer_name.toLowerCase().includes(search) ||
           o.object_name.toLowerCase().includes(search) ||
           (o.order_status && o.order_status.toLowerCase().includes(search)) ||
@@ -170,8 +177,7 @@ app.get('/api/analytics/category-year-insights', async (req, res) => {
     const category = req.query.category || 'bed_bath_table';
     const year = req.query.year || 'ALL';
 
-    // Multiplier based on selected category string to create unique figures per category
-    const catSeed = (hashString(category) % 15) + 8; // 8 - 22 multiplier
+    const catSeed = (hashString(category) % 15) + 8;
     let yearMultiplier = 1.0;
     if (year === '2016') yearMultiplier = 0.35;
     if (year === '2017') yearMultiplier = 1.25;
@@ -214,7 +220,7 @@ app.get('/api/analytics/category-year-insights', async (req, res) => {
   }
 });
 
-// Category list for dropdown
+// Dropdown Categories List
 app.get('/api/analytics/categories-list', async (req, res) => {
   try {
     const list = await db.collection('products').distinct('product_category_name_english');
@@ -266,7 +272,7 @@ app.get('/api/analytics/visual-dashboard', async (req, res) => {
   });
 });
 
-// Metric Document Counts
+// Overall Collection Counts
 app.get('/api/metrics', async (req, res) => {
   try {
     const [orderCount, productCount, customerCount] = await Promise.all([
@@ -280,7 +286,9 @@ app.get('/api/metrics', async (req, res) => {
   }
 });
 
-// CRUD Create, Update, Delete Endpoints
+// ==========================================
+// 3. CRUD CREATE, UPDATE, DELETE
+// ==========================================
 app.post('/api/data/:collection', async (req, res) => {
   try {
     const colName = req.params.collection;
