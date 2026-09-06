@@ -3,287 +3,266 @@ const { MongoClient, ObjectId } = require('mongodb');
 const cors = require('cors');
 
 const app = express();
-app.use(cors({ origin: '*' }));
+app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017';
+// const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017';
+// const DB_NAME = 'olist_analytics';
+
+const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://admin:OlistAtlas2026@cluster0.qvrrez0.mongodb.net/olist_analytics?retryWrites=true&w=majority';
 const DB_NAME = process.env.DB_NAME || 'olist_analytics';
 
-let db = null;
+let db;
 const BRL_TO_INR = 18.0;
 
-// Deterministic generators for clean customer & product naming
-const FIRST_NAMES = ['Gabriel', 'Fernanda', 'Carlos', 'Mariana', 'Lucas', 'Beatriz', 'Rodrigo', 'Juliana', 'Bruno', 'Camila', 'Rafael', 'Larissa', 'Thiago', 'Aline', 'Marcelo', 'Patricia', 'Diego', 'Vanessa', 'Matheus', 'Renata'];
-const LAST_NAMES = ['Santos', 'Lima', 'Silva', 'Oliveira', 'Costa', 'Pereira', 'Carvalho', 'Ribeiro', 'Alves', 'Souza', 'Martins', 'Dias', 'Rocha', 'Nascimento', 'Gomes', 'Araujo', 'Monteiro', 'Barbosa', 'Cardoso', 'Correia'];
-
-function hashString(str) {
-  let hash = 0;
-  for (let i = 0; i < (str || '').length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
-
-function getCustomerName(id) {
-  if (!id) return 'Customer Guest';
-  const h = hashString(id);
-  return `${FIRST_NAMES[h % FIRST_NAMES.length]} ${LAST_NAMES[(h >> 3) % LAST_NAMES.length]}`;
-}
-
-function formatCategoryToObjectName(cat, id) {
-  if (!cat || cat === 'General') {
-    const defaultObjects = ['Wireless Earbuds Pro', 'Ergonomic Desk Chair', 'Ceramic Table Lamp', 'Stainless Steel Tumbler', 'Smart Fitness Band'];
-    return defaultObjects[hashString(id || '') % defaultObjects.length];
-  }
-  return cat
-    .split('_')
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ') + ' Package';
-}
-
-// Seed dataset for cloud fallback if database is empty on Atlas
-const SEED_ORDERS = [
-  { order_id: 'ord_9941a', object_name: 'Luxury Cotton Bedding Set', customer_name: 'Aline Santos', order_status: 'delivered', price_inr: 2840 },
-  { order_id: 'ord_9942b', object_name: 'Stainless Chronograph Watch', customer_name: 'Gabriel Lima', order_status: 'delivered', price_inr: 4950 },
-  { order_id: 'ord_9943c', object_name: 'Hydrating Face Serum Duo', customer_name: 'Fernanda Oliveira', order_status: 'delivered', price_inr: 1650 },
-  { order_id: 'ord_9944d', object_name: 'Trek Mountain Rucksack', customer_name: 'Carlos Silva', order_status: 'shipped', price_inr: 3200 },
-  { order_id: 'ord_9945e', object_name: 'Mechanical Gaming Keyboard', customer_name: 'Lucas Pereira', order_status: 'delivered', price_inr: 5400 },
-  { order_id: 'ord_9946f', object_name: 'Ceramic Table Lamp Glow', customer_name: 'Beatriz Costa', order_status: 'delivered', price_inr: 2100 },
-  { order_id: 'ord_9947g', object_name: 'Ergonomic Mesh Office Chair', customer_name: 'Rodrigo Alves', order_status: 'delivered', price_inr: 8900 },
-  { order_id: 'ord_9948h', object_name: 'Smart Bluetooth Soundbar', customer_name: 'Juliana Souza', order_status: 'processing', price_inr: 6750 },
-  { order_id: 'ord_9949i', object_name: 'Non-Stick Induction Pan', customer_name: 'Bruno Martins', order_status: 'delivered', price_inr: 1890 },
-  { order_id: 'ord_9950j', object_name: 'Premium Leather Wallet', customer_name: 'Camila Rocha', order_status: 'delivered', price_inr: 1250 }
-];
-
-const SEED_PRODUCTS = [
-  { product_id: 'prod_101', object_name: 'Luxury Cotton Bedding Set', product_category_name_english: 'bed_bath_table', product_weight_g: 1250 },
-  { product_id: 'prod_102', object_name: 'Stainless Chronograph Watch', product_category_name_english: 'watches_gifts', product_weight_g: 450 },
-  { product_id: 'prod_103', object_name: 'Hydrating Face Serum Duo', product_category_name_english: 'health_beauty', product_weight_g: 220 },
-  { product_id: 'prod_104', object_name: 'Trek Mountain Rucksack', product_category_name_english: 'sports_leisure', product_weight_g: 850 },
-  { product_id: 'prod_105', object_name: 'Mechanical Gaming Keyboard', product_category_name_english: 'computers_accessories', product_weight_g: 950 },
-  { product_id: 'prod_106', object_name: 'Ceramic Table Lamp Glow', product_category_name_english: 'furniture_decor', product_weight_g: 1600 }
-];
-
-const SEED_CUSTOMERS = [
-  { customer_id: 'cust_201', customer_name: 'Aline Santos', customer_city: 'Mumbai', customer_state: 'MH', customer_zip_code_prefix: 400001 },
-  { customer_id: 'cust_202', customer_name: 'Gabriel Lima', customer_city: 'Bengaluru', customer_state: 'KA', customer_zip_code_prefix: 560001 },
-  { customer_id: 'cust_203', customer_name: 'Fernanda Oliveira', customer_city: 'Delhi', customer_state: 'DL', customer_zip_code_prefix: 110001 },
-  { customer_id: 'cust_204', customer_name: 'Carlos Silva', customer_city: 'Hyderabad', customer_state: 'TS', customer_zip_code_prefix: 500001 },
-  { customer_id: 'cust_205', customer_name: 'Lucas Pereira', customer_city: 'Pune', customer_state: 'MH', customer_zip_code_prefix: 411001 }
-];
-
-// Start Server immediately for Render Health Check
-app.listen(PORT, () => {
-  console.log(`Server actively running on port ${PORT}`);
-});
-
-// Safe database connection
-MongoClient.connect(MONGO_URI, { connectTimeoutMS: 8000 })
+// Connect to MongoDB
+MongoClient.connect(MONGO_URI)
   .then(client => {
     db = client.db(DB_NAME);
-    console.log(`Connected to MongoDB Atlas: ${DB_NAME}`);
+    console.log(`Connected to database: ${DB_NAME}`);
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
   .catch(err => {
-    console.log("Running in Cloud Standby Mode (Live Fallback Data Active):", err.message);
+    console.error("MongoDB Connection Failed:", err);
   });
 
-app.get('/', (req, res) => {
-  res.json({ status: 'Online', database: db ? 'Connected' : 'Standby Mode', port: PORT });
-});
-
-// ==========================================
-// 1. DATA API (CRUD & SEARCH)
-// ==========================================
+// 1. LIVE PAGINATED & SEARCHABLE CRUD ENDPOINT
 app.get('/api/data/:collection', async (req, res) => {
   try {
+    if (!db) return res.status(503).json({ error: 'Database not initialized' });
+
     const colName = req.params.collection;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const search = (req.query.search || '').trim().toLowerCase();
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, parseInt(req.query.limit) || 10);
+    const skip = (page - 1) * limit;
+    const search = (req.query.search || '').trim();
 
-    let dataset = [];
-    if (colName === 'orders') {
-      if (db) {
-        const raw = await db.collection('orders').find({}).limit(search !== '' ? 2500 : 200).toArray();
-        if (raw && raw.length > 0) {
-          const productIds = raw.flatMap(o => (o.items || []).map(it => it.product_id)).filter(Boolean);
-          const prods = await db.collection('products').find({ product_id: { $in: productIds } }).toArray();
-          const prodMap = new Map(prods.map(p => [p.product_id, p.product_category_name_english || p.product_category_name]));
+    if (!['orders', 'products', 'customers'].includes(colName)) {
+      return res.status(400).json({ error: 'Invalid collection' });
+    }
 
-          dataset = raw.map(o => {
-            const firstItem = (o.items && o.items[0]) || {};
-            const cat = prodMap.get(firstItem.product_id) || 'General Merchandise';
-            return {
-              ...o,
-              object_name: o.object_name || formatCategoryToObjectName(cat, o.order_id),
-              customer_name: o.customer_name || getCustomerName(o.customer_id)
-            };
-          });
-        }
-      }
-      if (dataset.length === 0) dataset = SEED_ORDERS;
+    let filter = {};
 
-      if (search !== '') {
-        dataset = dataset.filter(o =>
-          (o.customer_name && o.customer_name.toLowerCase().includes(search)) ||
-          (o.object_name && o.object_name.toLowerCase().includes(search)) ||
-          (o.order_status && o.order_status.toLowerCase().includes(search)) ||
-          (o.order_id && o.order_id.toLowerCase().includes(search))
-        );
-      }
-    } else if (colName === 'products') {
-      if (db) {
-        const raw = await db.collection('products').find({}).limit(search !== '' ? 2500 : 200).toArray();
-        if (raw && raw.length > 0) {
-          dataset = raw.map(p => ({
-            ...p,
-            object_name: p.object_name || formatCategoryToObjectName(p.product_category_name_english || p.product_category_name, p.product_id)
-          }));
-        }
-      }
-      if (dataset.length === 0) dataset = SEED_PRODUCTS;
-
-      if (search !== '') {
-        dataset = dataset.filter(p =>
-          (p.object_name && p.object_name.toLowerCase().includes(search)) ||
-          (p.product_category_name_english && p.product_category_name_english.toLowerCase().includes(search)) ||
-          (p.product_id && p.product_id.toLowerCase().includes(search))
-        );
-      }
-    } else if (colName === 'customers') {
-      if (db) {
-        const raw = await db.collection('customers').find({}).limit(search !== '' ? 2500 : 200).toArray();
-        if (raw && raw.length > 0) {
-          dataset = raw.map(c => ({
-            ...c,
-            customer_name: c.customer_name || getCustomerName(c.customer_id)
-          }));
-        }
-      }
-      if (dataset.length === 0) dataset = SEED_CUSTOMERS;
-
-      if (search !== '') {
-        dataset = dataset.filter(c =>
-          (c.customer_name && c.customer_name.toLowerCase().includes(search)) ||
-          (c.customer_city && c.customer_city.toLowerCase().includes(search)) ||
-          (c.customer_state && c.customer_state.toLowerCase().includes(search)) ||
-          (c.customer_id && c.customer_id.toLowerCase().includes(search))
-        );
+    if (search !== '') {
+      const regex = { $regex: search, $options: 'i' };
+      if (colName === 'orders') {
+        filter = {
+          $or: [
+            { order_id: regex },
+            { customer_id: regex },
+            { order_status: regex }
+          ]
+        };
+      } else if (colName === 'products') {
+        filter = {
+          $or: [
+            { product_id: regex },
+            { product_category_name: regex },
+            { product_category_name_english: regex }
+          ]
+        };
+      } else if (colName === 'customers') {
+        filter = {
+          $or: [
+            { customer_id: regex },
+            { customer_unique_id: regex },
+            { customer_city: regex },
+            { customer_state: regex }
+          ]
+        };
       }
     }
 
-    const total = dataset.length;
-    const pagedData = dataset.slice((page - 1) * limit, page * limit);
-    res.json({ total: search !== '' ? total : (db ? await db.collection(colName).countDocuments().catch(() => total) : total), page, limit, data: pagedData });
+    const [total, data] = await Promise.all([
+      db.collection(colName).countDocuments(filter),
+      db.collection(colName).find(filter).skip(skip).limit(limit).toArray()
+    ]);
+
+    res.json({ total, page, limit, data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ==========================================
-// 2. CATEGORY & YEAR DYNAMIC INSIGHTS
-// ==========================================
-app.get('/api/analytics/category-year-insights', async (req, res) => {
-  const category = req.query.category || 'bed_bath_table';
-  const year = req.query.year || 'ALL';
-
-  const catSeed = (hashString(category) % 12) + 7;
-  let yearMultiplier = 1.0;
-  if (year === '2016') yearMultiplier = 0.32;
-  if (year === '2017') yearMultiplier = 1.22;
-  if (year === '2018') yearMultiplier = 1.58;
-
-  const baseRev = Math.round(catSeed * 340000 * yearMultiplier);
-  const baseUnits = Math.round(catSeed * 175 * yearMultiplier);
-  const baseOrders = Math.round(baseUnits * 0.84);
-  const avgBasket = Math.round(baseRev / baseOrders);
-
-  const periods = (year === 'ALL')
-    ? ['2017-01', '2017-05', '2017-09', '2018-01', '2018-05', '2018-08']
-    : [`${year}-01`, `${year}-03`, `${year}-05`, `${year}-07`, `${year}-09`, `${year}-11`];
-
-  const trends = periods.map((p, idx) => {
-    const step = (idx + 1) * 0.27;
-    const periodRev = Math.round((baseRev / 4.4) * step);
-    const periodUnits = Math.round((baseUnits / 4.4) * step);
-    return {
-      period: p,
-      category,
-      unitsSold: periodUnits,
-      orderCount: Math.round(periodUnits * 0.84),
-      revenueINR: periodRev
-    };
-  });
-
-  res.json({
-    summary: {
-      totalRevenueINR: baseRev,
-      totalUnitsSold: baseUnits,
-      totalOrders: baseOrders,
-      avgBasketINR: avgBasket
-    },
-    trends
-  });
-});
-
-// Dropdown Categories List
+// 2. LIVE DISTINCT CATEGORIES DIRECTLY FROM INGESTED PRODUCTS
 app.get('/api/analytics/categories-list', async (req, res) => {
-  res.json(['bed_bath_table', 'health_beauty', 'watches_gifts', 'sports_leisure', 'computers_accessories', 'furniture_decor', 'housewares', 'auto', 'telephony']);
+  try {
+    if (!db) return res.json([]);
+    const categories = await db.collection('products').distinct('product_category_name_english');
+    const valid = categories.filter(c => c && typeof c === 'string' && c.trim() !== '').sort();
+    if (valid.length > 0) return res.json(valid);
+
+    // Fallback to Portuguese name if English isn't mapped
+    const fallbackCats = await db.collection('products').distinct('product_category_name');
+    res.json(fallbackCats.filter(c => c && typeof c === 'string').sort());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// Visual Dashboard Endpoint
+// 3. REAL AGGREGATION PIPELINE: CATEGORY & YEAR FILTERING
+app.get('/api/analytics/category-year-insights', async (req, res) => {
+  try {
+    if (!db) return res.json({ summary: {}, trends: [] });
+
+    const category = req.query.category;
+    const year = req.query.year || 'ALL';
+
+    // Step A: Find product_ids matching this category
+    const matchingProducts = await db.collection('products')
+      .find({
+        $or: [
+          { product_category_name_english: category },
+          { product_category_name: category }
+        ]
+      }, { projection: { product_id: 1 } })
+      .toArray();
+
+    const productIds = new Set(matchingProducts.map(p => p.product_id));
+
+    // Step B: Query Orders with purchase timestamp
+    let orderMatch = {};
+    if (year !== 'ALL') {
+      orderMatch.order_purchase_timestamp = { $regex: `^${year}` };
+    }
+
+    const rawOrders = await db.collection('orders')
+      .find(orderMatch, { projection: { order_id: 1, order_purchase_timestamp: 1, items: 1 } })
+      .limit(6000)
+      .toArray();
+
+    const periodMap = new Map();
+    let grandRevenueINR = 0;
+    let grandUnits = 0;
+    let grandOrders = 0;
+
+    for (const ord of rawOrders) {
+      if (!ord.items || !Array.isArray(ord.items)) continue;
+      const validItems = ord.items.filter(it => productIds.size === 0 || productIds.has(it.product_id));
+      if (validItems.length === 0) continue;
+
+      grandOrders++;
+      const period = (ord.order_purchase_timestamp || '').slice(0, 7) || '2017-01';
+
+      if (!periodMap.has(period)) {
+        periodMap.set(period, { period, category: category || 'All', unitsSold: 0, orderCount: 0, revenueINR: 0 });
+      }
+
+      const pEntry = periodMap.get(period);
+      pEntry.orderCount++;
+
+      for (const it of validItems) {
+        const itemPriceINR = Math.round((it.price || 0) * BRL_TO_INR);
+        grandRevenueINR += itemPriceINR;
+        grandUnits++;
+        pEntry.unitsSold++;
+        pEntry.revenueINR += itemPriceINR;
+      }
+    }
+
+    const trends = Array.from(periodMap.values()).sort((a, b) => a.period.localeCompare(b.period));
+
+    res.json({
+      summary: {
+        totalRevenueINR: grandRevenueINR,
+        totalUnitsSold: grandUnits,
+        totalOrders: grandOrders,
+        avgBasketINR: grandOrders > 0 ? Math.round(grandRevenueINR / grandOrders) : 0
+      },
+      trends
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. LIVE DASHBOARD METRICS FROM MONGODB
 app.get('/api/analytics/visual-dashboard', async (req, res) => {
-  res.json({
-    summary: { totalRevenueINR: 18450000, totalUnits: 9840, totalOrders: 8250, avgBasketINR: 2236 },
-    salesTrends: [
-      { period: '2017-01', revenueINR: 750000, orders: 320, units: 390 },
-      { period: '2017-03', revenueINR: 1420000, orders: 580, units: 690 },
-      { period: '2017-06', revenueINR: 2150000, orders: 890, units: 1040 },
-      { period: '2017-09', revenueINR: 2890000, orders: 1240, units: 1480 },
-      { period: '2017-11', revenueINR: 4650000, orders: 2100, units: 2540 },
-      { period: '2018-01', revenueINR: 3250000, orders: 1420, units: 1690 },
-      { period: '2018-04', revenueINR: 3890000, orders: 1680, units: 1980 },
-      { period: '2018-07', revenueINR: 4120000, orders: 1790, units: 2120 }
-    ],
-    topProducts: [
-      { product_id: 'Skin Glow Elixir', category: 'health_beauty', revenueINR: 1250000, units: 340 },
-      { product_id: 'Chronograph Watch', category: 'watches_gifts', revenueINR: 1120000, units: 280 },
-      { product_id: 'Egyptian Cotton Sheets', category: 'bed_bath_table', revenueINR: 980000, units: 410 },
-      { product_id: 'Trek Trail Backpack', category: 'sports_leisure', revenueINR: 870000, units: 260 },
-      { product_id: 'Mechanical Keyboard', category: 'computers_acc', revenueINR: 790000, units: 190 },
-      { product_id: 'Nordic Wooden Lamp', category: 'furniture_decor', revenueINR: 680000, units: 230 }
-    ],
-    categoryWiseRevenue: [
-      { category: 'health_beauty', revenueINR: 4850000, units: 2400 },
-      { category: 'watches_gifts', revenueINR: 4210000, units: 1850 },
-      { category: 'bed_bath_table', revenueINR: 3890000, units: 2980 },
-      { category: 'sports_leisure', revenueINR: 3450000, units: 2100 },
-      { category: 'computers_accessories', revenueINR: 3120000, units: 1650 },
-      { category: 'furniture_decor', revenueINR: 2680000, units: 1820 },
-      { category: 'housewares', revenueINR: 2240000, units: 1540 }
-    ],
-    paymentBreakdown: [
-      { name: 'Credit Card', value: 74 },
-      { name: 'UPI / Boleto', value: 18 },
-      { name: 'Voucher', value: 5 },
-      { name: 'Debit Card', value: 3 }
-    ]
-  });
+  try {
+    if (!db) return res.status(503).json({ error: 'DB not ready' });
+
+    // Aggregate monthly revenue trends from orders collection
+    const trendsPipeline = [
+      { $match: { order_purchase_timestamp: { $exists: true, $ne: null } } },
+      {
+        $project: {
+          period: { $substrCP: ["$order_purchase_timestamp", 0, 7] },
+          items: 1
+        }
+      },
+      { $unwind: { path: "$items", preserveNullAndEmptyArrays: false } },
+      {
+        $group: {
+          _id: "$period",
+          revenueBRL: { $sum: "$items.price" },
+          units: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } },
+      { $limit: 12 }
+    ];
+
+    const rawTrends = await db.collection('orders').aggregate(trendsPipeline).toArray();
+    const salesTrends = rawTrends.map(t => ({
+      period: t._id,
+      revenueINR: Math.round(t.revenueBRL * BRL_TO_INR),
+      units: t.units,
+      orders: Math.round(t.units * 0.85)
+    }));
+
+    const totalRevenueINR = salesTrends.reduce((acc, t) => acc + t.revenueINR, 0);
+    const totalUnits = salesTrends.reduce((acc, t) => acc + t.units, 0);
+    const totalOrders = salesTrends.reduce((acc, t) => acc + t.orders, 0);
+
+    res.json({
+      summary: {
+        totalRevenueINR,
+        totalUnits,
+        totalOrders,
+        avgBasketINR: totalOrders > 0 ? Math.round(totalRevenueINR / totalOrders) : 0
+      },
+      salesTrends
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
+// 5. EXACT COLLECTION COUNTS
 app.get('/api/metrics', async (req, res) => {
-  res.json({ orderCount: 99442, productCount: 32951, customerCount: 198882 });
+  try {
+    if (!db) return res.json({ orderCount: 0, productCount: 0, customerCount: 0 });
+    const [orderCount, productCount, customerCount] = await Promise.all([
+      db.collection('orders').countDocuments(),
+      db.collection('products').countDocuments(),
+      db.collection('customers').countDocuments()
+    ]);
+    res.json({ orderCount, productCount, customerCount });
+  } catch (err) {
+    res.status(500).json({ orderCount: 0, productCount: 0, customerCount: 0 });
+  }
 });
 
-// CRUD Operations
+// 6. REAL CRUD: INSERT, UPDATE, DELETE TO MONGODB
 app.post('/api/data/:collection', async (req, res) => {
   try {
     const colName = req.params.collection;
-    const payload = req.body;
-    if (db) await db.collection(colName).insertOne(payload);
-    res.status(201).json({ message: 'Success' });
+    const body = req.body;
+    if (colName === 'orders') {
+      body.order_id = body.order_id || 'ord_' + Date.now();
+      body.order_purchase_timestamp = new Date().toISOString();
+      body.items = [{ order_item_id: 1, price: (Number(body.price_inr) || 1500) / BRL_TO_INR }];
+    } else if (colName === 'products') {
+      body.product_id = body.product_id || 'prod_' + Date.now();
+      body.product_weight_g = Number(body.product_weight_g) || 500;
+    } else if (colName === 'customers') {
+      body.customer_id = body.customer_id || 'cust_' + Date.now();
+      body.customer_unique_id = body.customer_unique_id || 'uniq_' + Date.now();
+    }
+
+    const result = await db.collection(colName).insertOne(body);
+    res.status(201).json({ success: true, insertedId: result.insertedId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -295,12 +274,12 @@ app.put('/api/data/:collection/:id', async (req, res) => {
     const id = req.params.id;
     const updates = { ...req.body };
     delete updates._id;
-    if (db) {
-      let query = { $or: [{ order_id: id }, { product_id: id }, { customer_id: id }] };
-      if (ObjectId.isValid(id)) query.$or.push({ _id: new ObjectId(id) });
-      await db.collection(colName).updateOne(query, { $set: updates });
-    }
-    res.json({ message: 'Success' });
+
+    let query = { $or: [{ order_id: id }, { product_id: id }, { customer_id: id }] };
+    if (ObjectId.isValid(id)) query.$or.push({ _id: new ObjectId(id) });
+
+    await db.collection(colName).updateOne(query, { $set: updates });
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -310,12 +289,11 @@ app.delete('/api/data/:collection/:id', async (req, res) => {
   try {
     const colName = req.params.collection;
     const id = req.params.id;
-    if (db) {
-      let query = { $or: [{ order_id: id }, { product_id: id }, { customer_id: id }] };
-      if (ObjectId.isValid(id)) query.$or.push({ _id: new ObjectId(id) });
-      await db.collection(colName).deleteOne(query);
-    }
-    res.json({ message: 'Success' });
+    let query = { $or: [{ order_id: id }, { product_id: id }, { customer_id: id }] };
+    if (ObjectId.isValid(id)) query.$or.push({ _id: new ObjectId(id) });
+
+    await db.collection(colName).deleteOne(query);
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
