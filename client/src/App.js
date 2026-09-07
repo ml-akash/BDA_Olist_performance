@@ -26,7 +26,7 @@ export default function App() {
   const [metrics, setMetrics] = useState({ orderCount: 0, productCount: 0, customerCount: 0 });
 
   // CRUD Table States
-  const [collection, setCollection] = useState('customers');
+  const [collection, setCollection] = useState('products');
   const [items, setItems] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -51,7 +51,6 @@ export default function App() {
   const [dashboardSummary, setDashboardSummary] = useState({ totalRevenueINR: 0, totalUnits: 0, totalOrders: 0, avgBasketINR: 0 });
   const [salesTrends, setSalesTrends] = useState([]);
 
-  // Fetch Total Document Metrics
   const loadMetrics = () => {
     fetch(`${API_BASE_URL}/api/metrics`)
       .then(r => r.json())
@@ -59,7 +58,18 @@ export default function App() {
       .catch(() => {});
   };
 
-  // Fetch Paginated Records
+  const loadCategories = () => {
+    fetch(`${API_BASE_URL}/api/analytics/categories-list`)
+      .then(r => r.json())
+      .then(list => {
+        if (Array.isArray(list) && list.length > 0) {
+          setCategoryList(list);
+          setSelectedCategory(prev => (prev && list.includes(prev) ? prev : list[0]));
+        }
+      })
+      .catch(() => {});
+  };
+
   const loadData = useCallback(() => {
     setLoading(true);
     fetch(`${API_BASE_URL}/api/data/${collection}?page=${page}&limit=10&search=${encodeURIComponent(searchTerm)}`)
@@ -72,20 +82,11 @@ export default function App() {
       .catch(() => setLoading(false));
   }, [collection, page, searchTerm]);
 
-  // Fetch Categories List
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/analytics/categories-list`)
-      .then(r => r.json())
-      .then(list => {
-        if (Array.isArray(list) && list.length > 0) {
-          setCategoryList(list);
-          setSelectedCategory(list[0]);
-        }
-      })
-      .catch(() => {});
+    loadCategories();
+    loadMetrics();
   }, []);
 
-  // Run Category Aggregations
   useEffect(() => {
     if (!selectedCategory) return;
     setCatLoading(true);
@@ -101,7 +102,6 @@ export default function App() {
       .catch(() => setCatLoading(false));
   }, [selectedCategory, selectedYear]);
 
-  // Load Dashboard Data
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/analytics/visual-dashboard`)
       .then(r => r.json())
@@ -115,22 +115,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    loadMetrics();
-  }, []);
-
-  useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // CRUD Handlers
   const handleOpenAdd = () => {
     setEditingItem(null);
     if (collection === 'customers') {
-      setFormData({ customer_city: 'sao paulo', customer_state: 'SP', customer_zip_code_prefix: '1000' });
+      setFormData({ customer_city: 'curitiba', customer_state: 'PR', customer_zip_code_prefix: '80010' });
     } else if (collection === 'products') {
-      setFormData({ product_category_name_english: categoryList[0] || 'sports_leisure', product_weight_g: 500 });
+      setFormData({ product_category_name_english: '', product_weight_g: '450' });
     } else if (collection === 'orders') {
-      setFormData({ order_status: 'delivered', price_inr: 2500 });
+      setFormData({ order_status: 'delivered', price_inr: '2800' });
     }
     setIsModalOpen(true);
   };
@@ -173,34 +168,45 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok && (data.success || data.insertedId)) {
-        setFeedback({ msg: isEdit ? 'Document updated in MongoDB!' : 'New document added to MongoDB!', isError: false });
+        setFeedback({ msg: isEdit ? 'Record updated in MongoDB!' : 'New document added! (Shown at top of Page 1)', isError: false });
         setIsModalOpen(false);
+        setPage(1);
+
+        // Refresh CRUD table, Metrics, and Category dropdown list
         loadData();
         loadMetrics();
+        loadCategories();
+
+        // If a new product category was added, switch Category Explorer directly to it
+        if (collection === 'products' && formData.product_category_name_english) {
+          const newCat = formData.product_category_name_english.trim().toLowerCase();
+          setSelectedCategory(newCat);
+        }
       } else {
-        setFeedback({ msg: `Operation failed: ${data.error || 'Server rejected request'}`, isError: true });
+        setFeedback({ msg: `Failed: ${data.error || 'Check fields'}`, isError: true });
       }
     } catch (err) {
-      setFeedback({ msg: `Network error: ${err.message}`, isError: true });
+      setFeedback({ msg: `Connection error: ${err.message}`, isError: true });
     }
   };
 
   const handleDelete = async (item) => {
     const identifier = item._id || item.customer_id || item.product_id || item.order_id;
-    if (!window.confirm(`Permanently delete record (${identifier}) from MongoDB?`)) return;
+    if (!window.confirm(`Delete record (${identifier}) from MongoDB?`)) return;
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/data/${collection}/${identifier}`, { method: 'DELETE' });
       const data = await res.json();
       if (res.ok && data.success) {
-        setFeedback({ msg: 'Document successfully deleted from MongoDB!', isError: false });
+        setFeedback({ msg: 'Record removed from MongoDB!', isError: false });
         loadData();
         loadMetrics();
+        loadCategories();
       } else {
-        setFeedback({ msg: `Delete failed: ${data.error || 'Document not found'}`, isError: true });
+        setFeedback({ msg: 'Delete failed', isError: true });
       }
     } catch (err) {
-      setFeedback({ msg: `Network error during delete: ${err.message}`, isError: true });
+      setFeedback({ msg: `Delete error: ${err.message}`, isError: true });
     }
   };
 
@@ -220,7 +226,7 @@ export default function App() {
   return (
     <div style={{ backgroundColor: '#09090b', minHeight: '100vh', padding: '24px', color: '#fafafa', fontFamily: 'Inter, system-ui, sans-serif' }}>
       
-      {/* Top Header */}
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '22px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -228,7 +234,7 @@ export default function App() {
             <h1 style={{ margin: 0, fontSize: '24px', color: '#f4f4f5', fontWeight: 800 }}>Olist E-Commerce Sales Platform</h1>
           </div>
           <p style={{ margin: '4px 0 0 18px', color: '#71717a', fontSize: '13px' }}>
-            Connected Database: <code style={{ color: PALETTE.emerald }}>olist_analytics</code> • Live Ingested Records
+            Local MongoDB Instance: <code style={{ color: PALETTE.emerald }}>olist_analytics</code>
           </p>
         </div>
 
@@ -255,9 +261,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ========================================================================= */}
       {/* 1. DATABASE CRUD TAB */}
-      {/* ========================================================================= */}
       {activePage === 'crud_data' && (
         <>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
@@ -267,13 +271,13 @@ export default function App() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '20px' }}>
-            <div onClick={() => { setCollection('customers'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'customers' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'customers' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
-              <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: CUSTOMERS</div>
-              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.customerCount.toLocaleString('en-IN')} Documents</div>
-            </div>
             <div onClick={() => { setCollection('products'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'products' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'products' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: PRODUCTS</div>
               <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.productCount.toLocaleString('en-IN')} Documents</div>
+            </div>
+            <div onClick={() => { setCollection('customers'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'customers' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'customers' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: CUSTOMERS</div>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.customerCount.toLocaleString('en-IN')} Documents</div>
             </div>
             <div onClick={() => { setCollection('orders'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'orders' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'orders' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: ORDERS</div>
@@ -291,7 +295,7 @@ export default function App() {
             />
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
               <span style={{ fontSize: '13px', color: '#71717a' }}>
-                {loading ? 'Querying MongoDB...' : `Total: ${totalCount.toLocaleString('en-IN')} documents | Page ${page} of ${totalPages}`}
+                {loading ? 'Querying local MongoDB...' : `Total: ${totalCount.toLocaleString('en-IN')} documents | Page ${page} of ${totalPages}`}
               </span>
               <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: page <= 1 ? 'not-allowed' : 'pointer' }}>Previous</button>
               <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}>Next</button>
@@ -302,31 +306,30 @@ export default function App() {
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
               <thead>
                 <tr style={{ background: '#18181b', borderBottom: '1px solid #27272a', color: '#a1a1aa' }}>
+                  {collection === 'products' && (
+                    <>
+                      <th style={{ padding: '12px' }}>Product ID</th>
+                      <th style={{ padding: '12px' }}>Category (English / Filter Key)</th>
+                      <th style={{ padding: '12px' }}>Raw Category</th>
+                      <th style={{ padding: '12px' }}>Weight (g)</th>
+                      <th style={{ padding: '12px' }}>Actions</th>
+                    </>
+                  )}
                   {collection === 'customers' && (
                     <>
                       <th style={{ padding: '12px' }}>Customer ID</th>
-                      <th style={{ padding: '12px' }}>Unique ID Hash</th>
                       <th style={{ padding: '12px' }}>City</th>
                       <th style={{ padding: '12px' }}>State</th>
                       <th style={{ padding: '12px' }}>Zip Prefix</th>
                       <th style={{ padding: '12px' }}>Actions</th>
                     </>
                   )}
-                  {collection === 'products' && (
-                    <>
-                      <th style={{ padding: '12px' }}>Product ID</th>
-                      <th style={{ padding: '12px' }}>English Category</th>
-                      <th style={{ padding: '12px' }}>Raw Category</th>
-                      <th style={{ padding: '12px' }}>Weight (g)</th>
-                      <th style={{ padding: '12px' }}>Actions</th>
-                    </>
-                  )}
                   {collection === 'orders' && (
                     <>
                       <th style={{ padding: '12px' }}>Order ID</th>
-                      <th style={{ padding: '12px' }}>Customer Ref</th>
+                      <th style={{ padding: '12px' }}>Customer ID</th>
                       <th style={{ padding: '12px' }}>Status</th>
-                      <th style={{ padding: '12px' }}>Purchase Timestamp</th>
+                      <th style={{ padding: '12px' }}>Timestamp</th>
                       <th style={{ padding: '12px' }}>Price (₹)</th>
                       <th style={{ padding: '12px' }}>Actions</th>
                     </>
@@ -336,26 +339,25 @@ export default function App() {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#71717a' }}>No records found in MongoDB matching the query.</td>
+                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#71717a' }}>No records found matching query.</td>
                   </tr>
                 ) : (
                   items.map((it, idx) => (
                     <tr key={it._id || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                      {collection === 'customers' && (
-                        <>
-                          <td style={{ padding: '12px', fontFamily: 'monospace', color: '#38bdf8' }}>{it.customer_id}</td>
-                          <td style={{ padding: '12px', fontFamily: 'monospace', color: '#a1a1aa' }}>{it.customer_unique_id || 'N/A'}</td>
-                          <td style={{ padding: '12px', fontWeight: 600, color: '#fafafa' }}>{it.customer_city}</td>
-                          <td style={{ padding: '12px', fontWeight: 'bold', color: PALETTE.gold }}>{it.customer_state}</td>
-                          <td style={{ padding: '12px' }}>{it.customer_zip_code_prefix}</td>
-                        </>
-                      )}
                       {collection === 'products' && (
                         <>
                           <td style={{ padding: '12px', fontFamily: 'monospace', color: '#38bdf8' }}>{it.product_id}</td>
-                          <td style={{ padding: '12px', fontWeight: 600, color: '#fafafa' }}>{it.product_category_name_english || 'general'}</td>
+                          <td style={{ padding: '12px', fontWeight: 600, color: '#fafafa' }}>{it.product_category_name_english || it.product_category_name}</td>
                           <td style={{ padding: '12px', color: '#a1a1aa' }}>{it.product_category_name || '-'}</td>
                           <td style={{ padding: '12px' }}>{it.product_weight_g || 0} g</td>
+                        </>
+                      )}
+                      {collection === 'customers' && (
+                        <>
+                          <td style={{ padding: '12px', fontFamily: 'monospace', color: '#38bdf8' }}>{it.customer_id}</td>
+                          <td style={{ padding: '12px', fontWeight: 600, color: '#fafafa' }}>{it.customer_city}</td>
+                          <td style={{ padding: '12px', fontWeight: 'bold', color: PALETTE.gold }}>{it.customer_state}</td>
+                          <td style={{ padding: '12px' }}>{it.customer_zip_code_prefix}</td>
                         </>
                       )}
                       {collection === 'orders' && (
@@ -367,7 +369,7 @@ export default function App() {
                               {it.order_status}
                             </span>
                           </td>
-                          <td style={{ padding: '12px', color: '#a1a1aa' }}>{it.order_purchase_timestamp || '-'}</td>
+                          <td style={{ padding: '12px', color: '#a1a1aa' }}>{it.order_purchase_timestamp}</td>
                           <td style={{ padding: '12px', fontWeight: 'bold', color: '#fafafa' }}>
                             {it.items && it.items[0] ? formatRupee(Math.round(it.items[0].price * BRL_TO_INR)) : '₹2,500'}
                           </td>
@@ -390,9 +392,7 @@ export default function App() {
         </>
       )}
 
-      {/* ========================================================================= */}
       {/* 2. CATEGORY EXPLORER TAB */}
-      {/* ========================================================================= */}
       {activePage === 'category_analysis' && (
         <div>
           <div style={{ background: '#121215', padding: '16px 20px', borderRadius: '10px', marginBottom: '20px', display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -400,7 +400,7 @@ export default function App() {
 
             <label style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               Category:
-              <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} style={{ padding: '6px 12px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', minWidth: '200px' }}>
+              <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} style={{ padding: '6px 12px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', minWidth: '220px' }}>
                 {categoryList.map((cat, i) => (
                   <option key={i} value={cat}>{cat}</option>
                 ))}
@@ -441,9 +441,7 @@ export default function App() {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(460px, 1fr))', gap: '20px', marginBottom: '24px' }}>
             <div style={{ background: '#121215', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-              <h3 style={{ margin: '0 0 14px 0', fontSize: '15px' }}>
-                Monthly Revenue (₹) - {selectedCategory} ({selectedYear})
-              </h3>
+              <h3 style={{ margin: '0 0 14px 0', fontSize: '15px' }}>Monthly Revenue (₹) - {selectedCategory} ({selectedYear})</h3>
               <div style={{ width: '100%', height: '300px', minHeight: '300px' }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={catTrends}>
@@ -458,16 +456,14 @@ export default function App() {
                     <YAxis stroke="#71717a" tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
                     <Tooltip formatter={(v) => formatRupee(v)} contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px' }} />
                     <Legend />
-                    <Area type="monotone" dataKey="revenueINR" name="Revenue (₹)" stroke={PALETTE.emerald} fill="url(#catRevGrad)" strokeWidth={2.5} dot={{ r: 4 }} />
+                    <Area type="monotone" dataKey="revenueINR" name="Revenue (₹)" stroke={PALETTE.emerald} fill={PALETTE.emerald} fillOpacity={0.3} strokeWidth={2.5} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
             <div style={{ background: '#121215', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-              <h3 style={{ margin: '0 0 14px 0', fontSize: '15px' }}>
-                Units Sold Velocity - {selectedCategory}
-              </h3>
+              <h3 style={{ margin: '0 0 14px 0', fontSize: '15px' }}>Units Sold Velocity - {selectedCategory}</h3>
               <div style={{ width: '100%', height: '300px', minHeight: '300px' }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={catTrends}>
@@ -485,9 +481,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ========================================================================= */}
       {/* 3. VISUAL ANALYTICS DASHBOARD */}
-      {/* ========================================================================= */}
       {activePage === 'visual_dashboard' && (
         <div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '22px' }}>
@@ -509,7 +503,7 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ background: '#121215', padding: '22px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)', marginBottom: '22px' }}>
+          <div style={{ background: '#121215', padding: '22px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
             <h3 style={{ margin: '0 0 14px 0', fontSize: '16px', color: '#f4f4f5' }}>Revenue Velocity & Order Trajectory</h3>
             <div style={{ width: '100%', height: '320px', minHeight: '320px' }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -529,25 +523,25 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Dialog */}
+      {/* Modal Dialog with Exact Schema Inputs */}
       {isModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
           <div style={{ background: '#121215', padding: '24px', borderRadius: '12px', width: '420px', border: '1px solid #27272a' }}>
-            <h3 style={{ margin: '0 0 16px 0', color: PALETTE.emerald }}>{editingItem ? 'Edit Document in ' : 'Insert Document into '} {collection.toUpperCase()}</h3>
+            <h3 style={{ margin: '0 0 16px 0', color: PALETTE.emerald }}>{editingItem ? 'Edit ' : 'Insert New '} {collection.slice(0, -1).toUpperCase()}</h3>
             <form onSubmit={handleSubmitForm}>
               {collection === 'customers' && (
                 <>
                   <div style={{ marginBottom: '12px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>City:</label>
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>City (e.g. curitiba, sao paulo):</label>
                     <input type="text" value={formData.customer_city || ''} onChange={e => setFormData({ ...formData, customer_city: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
                   </div>
                   <div style={{ marginBottom: '12px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>State (e.g. SP, MG, RJ):</label>
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>State Code (e.g. PR, SP, RJ):</label>
                     <input type="text" value={formData.customer_state || ''} onChange={e => setFormData({ ...formData, customer_state: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
                   </div>
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Zip Code Prefix:</label>
-                    <input type="text" value={formData.customer_zip_code_prefix || ''} onChange={e => setFormData({ ...formData, customer_zip_code_prefix: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Zip Code Prefix (Numeric):</label>
+                    <input type="number" value={formData.customer_zip_code_prefix || ''} onChange={e => setFormData({ ...formData, customer_zip_code_prefix: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
                   </div>
                 </>
               )}
@@ -555,11 +549,11 @@ export default function App() {
               {collection === 'products' && (
                 <>
                   <div style={{ marginBottom: '12px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Category (English):</label>
-                    <input type="text" value={formData.product_category_name_english || ''} onChange={e => setFormData({ ...formData, product_category_name_english: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Product Category (English / Key):</label>
+                    <input type="text" placeholder="e.g. gaming_consoles, drones, smart_home" value={formData.product_category_name_english || ''} onChange={e => setFormData({ ...formData, product_category_name_english: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
                   </div>
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Weight (g):</label>
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Weight in Grams (g):</label>
                     <input type="number" value={formData.product_weight_g || ''} onChange={e => setFormData({ ...formData, product_weight_g: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
                   </div>
                 </>
@@ -568,7 +562,7 @@ export default function App() {
               {collection === 'orders' && (
                 <>
                   <div style={{ marginBottom: '12px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Status:</label>
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Order Status:</label>
                     <select value={formData.order_status || 'delivered'} onChange={e => setFormData({ ...formData, order_status: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }}>
                       <option value="delivered">delivered</option>
                       <option value="shipped">shipped</option>
@@ -577,7 +571,7 @@ export default function App() {
                     </select>
                   </div>
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Amount (₹):</label>
+                    <label style={{ fontSize: '12px', color: '#a1a1aa' }}>Amount in INR (₹):</label>
                     <input type="number" value={formData.price_inr || ''} onChange={e => setFormData({ ...formData, price_inr: e.target.value })} style={{ width: '100%', padding: '8px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '6px', marginTop: '4px' }} required />
                   </div>
                 </>
@@ -585,7 +579,7 @@ export default function App() {
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                 <button type="button" onClick={() => setIsModalOpen(false)} style={{ padding: '8px 16px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Cancel</button>
-                <button type="submit" style={{ padding: '8px 16px', background: PALETTE.emerald, color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Save to MongoDB</button>
+                <button type="submit" style={{ padding: '8px 16px', background: PALETTE.emerald, color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Save Document</button>
               </div>
             </form>
           </div>
