@@ -6,6 +6,21 @@ const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
+// const PORT = process.env.PORT || 5000;
+// const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017';
+// const DB_NAME = 'olist_analytics';
+
+// let db;
+// const BRL_TO_INR = 18.0;
+
+// MongoClient.connect(MONGO_URI)
+//   .then(client => {
+//     db = client.db(DB_NAME);
+//     console.log(`Database connected successfully to [${DB_NAME}]`);
+//     app.listen(PORT, () => console.log(`Backend server running on port ${PORT}`));
+//   })
+//   .catch(err => console.error("Database connection failed:", err.message));
+
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017';
 const DB_NAME = 'olist_analytics';
@@ -13,13 +28,25 @@ const DB_NAME = 'olist_analytics';
 let db;
 const BRL_TO_INR = 18.0;
 
-MongoClient.connect(MONGO_URI)
-  .then(client => {
-    db = client.db(DB_NAME);
+// 1. Bind port immediately so Render's health check passes instantly
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Backend server running on port ${PORT}`);
+});
+
+// 2. Connect to MongoDB Atlas asynchronously with connection options
+const client = new MongoClient(MONGO_URI, {
+  serverSelectionTimeoutMS: 15000,
+  connectTimeoutMS: 15000
+});
+
+client.connect()
+  .then(connectedClient => {
+    db = connectedClient.db(DB_NAME);
     console.log(`Database connected successfully to [${DB_NAME}]`);
-    app.listen(PORT, () => console.log(`Backend server running on port ${PORT}`));
   })
-  .catch(err => console.error("Database connection failed:", err.message));
+  .catch(err => {
+    console.error("MongoDB Atlas connection error:", err.message);
+  });
 
 function generateHex32() {
   let res = '';
