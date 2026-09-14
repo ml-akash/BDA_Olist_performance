@@ -5,7 +5,8 @@ import {
 } from 'recharts';
 
 const BRL_TO_INR = 18.0;
-const API_BASE_URL = 'http://localhost:5000';
+// Dynamically uses the production API URL when hosted, or localhost when developing
+const API_BASE_URL = (process.env.REACT_APP_API_URL || 'http://localhost:5000').replace(/\/$/, '');
 
 const formatRupee = (num) => {
   if (num === undefined || num === null || isNaN(num)) return '₹0';
@@ -22,7 +23,6 @@ const PALETTE = {
 export default function App() {
   const [activePage, setActivePage] = useState('crud_data');
 
-  // Exact Collection Counts
   const [metrics, setMetrics] = useState({ orderCount: 0, productCount: 0, customerCount: 0 });
 
   // CRUD Table States
@@ -31,10 +31,17 @@ export default function App() {
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // 3 Multi-Filter Attributes
+  const [filter1, setFilter1] = useState('ALL');
+  const [filter2, setFilter2] = useState('ALL');
+  const [filter3, setFilter3] = useState('ALL');
+  const [filterOptions, setFilterOptions] = useState({ filter1: [], filter2: [] });
+
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState({ msg: '', isError: false });
 
-  // Form Modal States
+  // Modal Dialog States
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({});
@@ -70,9 +77,19 @@ export default function App() {
       .catch(() => {});
   };
 
+  const loadFilterOptions = useCallback((col) => {
+    fetch(`${API_BASE_URL}/api/filter-options/${col}`)
+      .then(r => r.json())
+      .then(opts => {
+        setFilterOptions(opts || { filter1: [], filter2: [] });
+      })
+      .catch(() => setFilterOptions({ filter1: [], filter2: [] }));
+  }, []);
+
   const loadData = useCallback(() => {
     setLoading(true);
-    fetch(`${API_BASE_URL}/api/data/${collection}?page=${page}&limit=10&search=${encodeURIComponent(searchTerm)}`)
+    const query = `page=${page}&limit=10&search=${encodeURIComponent(searchTerm)}&filter1=${encodeURIComponent(filter1)}&filter2=${encodeURIComponent(filter2)}&filter3=${encodeURIComponent(filter3)}`;
+    fetch(`${API_BASE_URL}/api/data/${collection}?${query}`)
       .then(r => r.json())
       .then(res => {
         setItems(res.data || []);
@@ -80,12 +97,35 @@ export default function App() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [collection, page, searchTerm]);
+  }, [collection, page, searchTerm, filter1, filter2, filter3]);
+
+  const handleSwitchCollection = (newCol) => {
+    setCollection(newCol);
+    setPage(1);
+    setSearchTerm('');
+    setFilter1('ALL');
+    setFilter2('ALL');
+    setFilter3('ALL');
+    loadFilterOptions(newCol);
+  };
+
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setFilter1('ALL');
+    setFilter2('ALL');
+    setFilter3('ALL');
+    setPage(1);
+  };
 
   useEffect(() => {
     loadCategories();
     loadMetrics();
+    loadFilterOptions(collection);
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   useEffect(() => {
     if (!selectedCategory) return;
@@ -113,10 +153,6 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
 
   const handleOpenAdd = () => {
     setEditingItem(null);
@@ -172,12 +208,11 @@ export default function App() {
         setIsModalOpen(false);
         setPage(1);
 
-        // Refresh CRUD table, Metrics, and Category dropdown list
         loadData();
         loadMetrics();
         loadCategories();
+        loadFilterOptions(collection);
 
-        // If a new product category was added, switch Category Explorer directly to it
         if (collection === 'products' && formData.product_category_name_english) {
           const newCat = formData.product_category_name_english.trim().toLowerCase();
           setSelectedCategory(newCat);
@@ -202,6 +237,7 @@ export default function App() {
         loadData();
         loadMetrics();
         loadCategories();
+        loadFilterOptions(collection);
       } else {
         setFeedback({ msg: 'Delete failed', isError: true });
       }
@@ -223,10 +259,20 @@ export default function App() {
     fontSize: '13px'
   });
 
+  const selectStyle = {
+    padding: '7px 12px',
+    background: '#18181b',
+    border: '1px solid #27272a',
+    color: '#fff',
+    borderRadius: '6px',
+    fontSize: '12px',
+    maxWidth: '180px'
+  };
+
   return (
     <div style={{ backgroundColor: '#09090b', minHeight: '100vh', padding: '24px', color: '#fafafa', fontFamily: 'Inter, system-ui, sans-serif' }}>
       
-      {/* Header */}
+      {/* Platform Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '22px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -234,7 +280,7 @@ export default function App() {
             <h1 style={{ margin: 0, fontSize: '24px', color: '#f4f4f5', fontWeight: 800 }}>Olist E-Commerce Sales Platform</h1>
           </div>
           <p style={{ margin: '4px 0 0 18px', color: '#71717a', fontSize: '13px' }}>
-            Local MongoDB Instance: <code style={{ color: PALETTE.emerald }}>olist_analytics</code>
+            Database Target: <code style={{ color: PALETTE.emerald }}>olist_analytics</code>
           </p>
         </div>
 
@@ -271,34 +317,152 @@ export default function App() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '20px' }}>
-            <div onClick={() => { setCollection('products'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'products' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'products' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
+            <div onClick={() => handleSwitchCollection('products')} style={{ background: collection === 'products' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'products' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: PRODUCTS</div>
               <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.productCount.toLocaleString('en-IN')} Documents</div>
             </div>
-            <div onClick={() => { setCollection('customers'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'customers' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'customers' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
+            <div onClick={() => handleSwitchCollection('customers')} style={{ background: collection === 'customers' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'customers' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: CUSTOMERS</div>
               <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.customerCount.toLocaleString('en-IN')} Documents</div>
             </div>
-            <div onClick={() => { setCollection('orders'); setPage(1); setSearchTerm(''); }} style={{ background: collection === 'orders' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'orders' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
+            <div onClick={() => handleSwitchCollection('orders')} style={{ background: collection === 'orders' ? '#18181b' : '#121215', padding: '16px', borderRadius: '10px', cursor: 'pointer', border: collection === 'orders' ? `1.5px solid ${PALETTE.emerald}` : '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ color: '#a1a1aa', fontSize: '11px', fontWeight: 600 }}>COLLECTION: ORDERS</div>
               <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fafafa', marginTop: '4px' }}>{metrics.orderCount.toLocaleString('en-IN')} Documents</div>
             </div>
           </div>
 
-          <div style={{ background: '#121215', padding: '14px', borderRadius: '10px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <input
-              type="text"
-              placeholder={`Search ${collection} by ID, City, State, or Category...`}
-              value={searchTerm}
-              onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
-              style={{ padding: '8px 14px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '8px', width: '380px' }}
-            />
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <span style={{ fontSize: '13px', color: '#71717a' }}>
-                {loading ? 'Querying local MongoDB...' : `Total: ${totalCount.toLocaleString('en-IN')} documents | Page ${page} of ${totalPages}`}
-              </span>
-              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: page <= 1 ? 'not-allowed' : 'pointer' }}>Previous</button>
-              <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}>Next</button>
+          <div style={{ background: '#121215', padding: '16px', borderRadius: '10px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '14px', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <input
+                type="text"
+                placeholder={`Live Search ${collection} by ID, City, Status, or Category...`}
+                value={searchTerm}
+                onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
+                style={{ padding: '8px 14px', background: '#18181b', border: '1px solid #27272a', color: '#fff', borderRadius: '8px', width: '360px' }}
+              />
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <span style={{ fontSize: '13px', color: '#71717a' }}>
+                  {loading ? 'Querying MongoDB...' : `Matching: ${totalCount.toLocaleString('en-IN')} records | Page ${page} of ${totalPages}`}
+                </span>
+                <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: page <= 1 ? 'not-allowed' : 'pointer' }}>Previous</button>
+                <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ padding: '6px 12px', background: '#27272a', color: '#fff', border: 'none', borderRadius: '6px', cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}>Next</button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+              <span style={{ fontSize: '12px', fontWeight: 'bold', color: PALETTE.emerald }}>Filter Dimensions:</span>
+
+              {collection === 'customers' && (
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#a1a1aa' }}>
+                    State:
+                    <select value={filter1} onChange={(e) => { setFilter1(e.target.value); setPage(1); }} style={selectStyle}>
+                      <option value="ALL">All States</option>
+                      {(filterOptions.filter1 || []).map((st, i) => (
+                        <option key={i} value={st}>{st}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#a1a1aa' }}>
+                    Top Cities:
+                    <select value={filter2} onChange={(e) => { setFilter2(e.target.value); setPage(1); }} style={selectStyle}>
+                      <option value="ALL">All Cities</option>
+                      {(filterOptions.filter2 || []).map((city, i) => (
+                        <option key={i} value={city}>{city}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#a1a1aa' }}>
+                    Zip Code Range:
+                    <select value={filter3} onChange={(e) => { setFilter3(e.target.value); setPage(1); }} style={selectStyle}>
+                      <option value="ALL">All Ranges</option>
+                      <option value="0-20k">00000 - 19999 (SP Capital)</option>
+                      <option value="20k-40k">20000 - 39999 (RJ / MG)</option>
+                      <option value="40k-70k">40000 - 69999 (BA / Central)</option>
+                      <option value="70k+">70000+ (North / South)</option>
+                    </select>
+                  </label>
+                </>
+              )}
+
+              {collection === 'products' && (
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#a1a1aa' }}>
+                    Category:
+                    <select value={filter1} onChange={(e) => { setFilter1(e.target.value); setPage(1); }} style={selectStyle}>
+                      <option value="ALL">All Categories</option>
+                      {(filterOptions.filter1 || []).map((cat, i) => (
+                        <option key={i} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#a1a1aa' }}>
+                    Weight Class:
+                    <select value={filter2} onChange={(e) => { setFilter2(e.target.value); setPage(1); }} style={selectStyle}>
+                      <option value="ALL">All Weights</option>
+                      <option value="light">Light (&lt; 500g)</option>
+                      <option value="medium">Medium (500g - 2kg)</option>
+                      <option value="heavy">Heavy (&gt; 2kg)</option>
+                    </select>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#a1a1aa' }}>
+                    Catalog Media:
+                    <select value={filter3} onChange={(e) => { setFilter3(e.target.value); setPage(1); }} style={selectStyle}>
+                      <option value="ALL">All Listings</option>
+                      <option value="single">Single Photo (1)</option>
+                      <option value="multiple">Multi-Photo (2+)</option>
+                    </select>
+                  </label>
+                </>
+              )}
+
+              {collection === 'orders' && (
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#a1a1aa' }}>
+                    Status:
+                    <select value={filter1} onChange={(e) => { setFilter1(e.target.value); setPage(1); }} style={selectStyle}>
+                      <option value="ALL">All Statuses</option>
+                      {(filterOptions.filter1 || []).map((st, i) => (
+                        <option key={i} value={st}>{st}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#a1a1aa' }}>
+                    Year:
+                    <select value={filter2} onChange={(e) => { setFilter2(e.target.value); setPage(1); }} style={selectStyle}>
+                      <option value="ALL">All Years</option>
+                      <option value="2016">2016</option>
+                      <option value="2017">2017</option>
+                      <option value="2018">2018</option>
+                    </select>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#a1a1aa' }}>
+                    Price Bracket (₹):
+                    <select value={filter3} onChange={(e) => { setFilter3(e.target.value); setPage(1); }} style={selectStyle}>
+                      <option value="ALL">All Brackets</option>
+                      <option value="budget">Budget (&lt; ₹1,000)</option>
+                      <option value="mid">Mid-Range (₹1,000 - ₹3,000)</option>
+                      <option value="premium">Premium (&gt; ₹3,000)</option>
+                    </select>
+                  </label>
+                </>
+              )}
+
+              {(filter1 !== 'ALL' || filter2 !== 'ALL' || filter3 !== 'ALL' || searchTerm !== '') && (
+                <button
+                  onClick={handleResetFilters}
+                  style={{ background: 'transparent', color: PALETTE.coral, border: `1px solid ${PALETTE.coral}`, padding: '4px 10px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer' }}
+                >
+                  Reset Filters ✕
+                </button>
+              )}
             </div>
           </div>
 
@@ -309,9 +473,10 @@ export default function App() {
                   {collection === 'products' && (
                     <>
                       <th style={{ padding: '12px' }}>Product ID</th>
-                      <th style={{ padding: '12px' }}>Category (English / Filter Key)</th>
+                      <th style={{ padding: '12px' }}>Category (English / Key)</th>
                       <th style={{ padding: '12px' }}>Raw Category</th>
                       <th style={{ padding: '12px' }}>Weight (g)</th>
+                      <th style={{ padding: '12px' }}>Photos</th>
                       <th style={{ padding: '12px' }}>Actions</th>
                     </>
                   )}
@@ -339,7 +504,7 @@ export default function App() {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#71717a' }}>No records found matching query.</td>
+                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#71717a' }}>No records found matching the applied filter combination.</td>
                   </tr>
                 ) : (
                   items.map((it, idx) => (
@@ -350,6 +515,7 @@ export default function App() {
                           <td style={{ padding: '12px', fontWeight: 600, color: '#fafafa' }}>{it.product_category_name_english || it.product_category_name}</td>
                           <td style={{ padding: '12px', color: '#a1a1aa' }}>{it.product_category_name || '-'}</td>
                           <td style={{ padding: '12px' }}>{it.product_weight_g || 0} g</td>
+                          <td style={{ padding: '12px', color: PALETTE.gold }}>{it.product_photos_qty || 1} 📷</td>
                         </>
                       )}
                       {collection === 'customers' && (
@@ -445,12 +611,6 @@ export default function App() {
               <div style={{ width: '100%', height: '300px', minHeight: '300px' }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={catTrends}>
-                    <defs>
-                      <linearGradient id="catRevGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={PALETTE.emerald} stopOpacity={0.4} />
-                        <stop offset="95%" stopColor={PALETTE.emerald} stopOpacity={0.0} />
-                      </linearGradient>
-                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                     <XAxis dataKey="period" stroke="#71717a" tick={{ fontSize: 11 }} />
                     <YAxis stroke="#71717a" tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
@@ -523,7 +683,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Dialog with Exact Schema Inputs */}
+      {/* Modal Dialog */}
       {isModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
           <div style={{ background: '#121215', padding: '24px', borderRadius: '12px', width: '420px', border: '1px solid #27272a' }}>

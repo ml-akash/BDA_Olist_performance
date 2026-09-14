@@ -7,6 +7,7 @@ app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
+// Secure fallback: defaults to localhost if not specified in environment
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017';
 const DB_NAME = 'olist_analytics';
 
@@ -16,10 +17,10 @@ const BRL_TO_INR = 18.0;
 MongoClient.connect(MONGO_URI)
   .then(client => {
     db = client.db(DB_NAME);
-    console.log(`Connected to database: ${DB_NAME}`);
+    console.log(`Database connected successfully to [${DB_NAME}]`);
     app.listen(PORT, () => console.log(`Backend server running on port ${PORT}`));
   })
-  .catch(err => console.error("Database connection failed:", err));
+  .catch(err => console.error("Database connection failed:", err.message));
 
 function generateHex32() {
   let res = '';
@@ -41,14 +42,14 @@ function buildIdQuery(id) {
   return { $or: or };
 }
 
-// 1. GET: Multi-Filter Searchable & Paginated CRUD
+// 1. Multi-Filter & Searchable CRUD Listing
 app.get('/api/data/:collection', async (req, res) => {
   try {
     if (!db) return res.status(503).json({ error: 'Database loading' });
 
     const colName = req.params.collection;
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.max(1, parseInt(req.query.limit) || 10);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.max(1, parseInt(req.query.limit, 10) || 10);
     const skip = (page - 1) * limit;
 
     const search = (req.query.search || '').trim();
@@ -62,7 +63,6 @@ app.get('/api/data/:collection', async (req, res) => {
 
     let andConditions = [];
 
-    // Search query
     if (search !== '') {
       const regex = { $regex: search, $options: 'i' };
       if (colName === 'orders') {
@@ -74,7 +74,6 @@ app.get('/api/data/:collection', async (req, res) => {
       }
     }
 
-    // Multi-Filter: Customers
     if (colName === 'customers') {
       if (filter1 !== 'ALL') andConditions.push({ customer_state: filter1 });
       if (filter2 !== 'ALL') andConditions.push({ customer_city: filter2.toLowerCase() });
@@ -86,7 +85,6 @@ app.get('/api/data/:collection', async (req, res) => {
       }
     }
 
-    // Multi-Filter: Products
     if (colName === 'products') {
       if (filter1 !== 'ALL') {
         andConditions.push({
@@ -107,7 +105,6 @@ app.get('/api/data/:collection', async (req, res) => {
       }
     }
 
-    // Multi-Filter: Orders
     if (colName === 'orders') {
       if (filter1 !== 'ALL') andConditions.push({ order_status: filter1 });
       if (filter2 !== 'ALL') andConditions.push({ order_purchase_timestamp: { $regex: `^${filter2}` } });
@@ -131,7 +128,7 @@ app.get('/api/data/:collection', async (req, res) => {
   }
 });
 
-// 2. Filter Options for Dropdowns
+// 2. Dropdown Filter Options
 app.get('/api/filter-options/:collection', async (req, res) => {
   try {
     if (!db) return res.json({});
@@ -175,7 +172,7 @@ app.get('/api/filter-options/:collection', async (req, res) => {
   }
 });
 
-// 3. Collection Counts
+// 3. Collection Record Counts
 app.get('/api/metrics', async (req, res) => {
   try {
     if (!db) return res.json({ orderCount: 0, productCount: 0, customerCount: 0 });
@@ -190,7 +187,7 @@ app.get('/api/metrics', async (req, res) => {
   }
 });
 
-// 4. POST: Ingest proper schema into MongoDB
+// 4. POST: Schema Ingestion
 app.post('/api/data/:collection', async (req, res) => {
   try {
     if (!db) return res.status(503).json({ success: false, error: 'Database disconnected' });
@@ -253,7 +250,7 @@ app.post('/api/data/:collection', async (req, res) => {
   }
 });
 
-// 5. PUT: Update record
+// 5. PUT: Update Record
 app.put('/api/data/:collection/:id', async (req, res) => {
   try {
     const colName = req.params.collection;
@@ -276,7 +273,7 @@ app.put('/api/data/:collection/:id', async (req, res) => {
   }
 });
 
-// 6. DELETE: Delete record
+// 6. DELETE: Remove Record
 app.delete('/api/data/:collection/:id', async (req, res) => {
   try {
     const colName = req.params.collection;
@@ -289,7 +286,7 @@ app.delete('/api/data/:collection/:id', async (req, res) => {
   }
 });
 
-// 7. Distinct Categories for Analysis View
+// 7. Distinct Categories
 app.get('/api/analytics/categories-list', async (req, res) => {
   try {
     if (!db) return res.json([]);
@@ -304,7 +301,7 @@ app.get('/api/analytics/categories-list', async (req, res) => {
   }
 });
 
-// 8. Strict Category Insights
+// 8. Strict Category Insights (Math Ground Truth)
 app.get('/api/analytics/category-year-insights', async (req, res) => {
   try {
     if (!db) return res.json({ summary: { totalRevenueINR: 0, totalUnitsSold: 0, totalOrders: 0, avgBasketINR: 0 }, trends: [] });
@@ -386,7 +383,7 @@ app.get('/api/analytics/category-year-insights', async (req, res) => {
   }
 });
 
-// 9. Visual Dashboard
+// 9. Visual Dashboard Aggregations
 app.get('/api/analytics/visual-dashboard', async (req, res) => {
   try {
     if (!db) return res.status(503).json({ summary: {}, salesTrends: [] });
