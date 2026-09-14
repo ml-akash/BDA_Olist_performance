@@ -34,9 +34,25 @@ app.listen(PORT, '0.0.0.0', () => {
 });
 
 // 2. Connect to MongoDB Atlas asynchronously with connection options
+// const client = new MongoClient(MONGO_URI, {
+//   serverSelectionTimeoutMS: 15000,
+//   connectTimeoutMS: 15000
+// });
+
+// client.connect()
+//   .then(connectedClient => {
+//     db = connectedClient.db(DB_NAME);
+//     console.log(`Database connected successfully to [${DB_NAME}]`);
+//   })
+//   .catch(err => {
+//     console.error("MongoDB Atlas connection error:", err.message);
+//   });
+// Connect to MongoDB Atlas with explicit TLS settings
 const client = new MongoClient(MONGO_URI, {
-  serverSelectionTimeoutMS: 15000,
-  connectTimeoutMS: 15000
+  tls: true,
+  tlsAllowInvalidCertificates: false,
+  serverSelectionTimeoutMS: 20000,
+  connectTimeoutMS: 20000
 });
 
 client.connect()
