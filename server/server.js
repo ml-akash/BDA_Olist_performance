@@ -28,14 +28,23 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend server running on port ${PORT}`);
 });
 
-// 3. Connect to MongoDB with cloud TLS/SSL compatibility flags
+// 3. Connect to MongoDB with explicit IPv4 and TLS parameters
 const client = new MongoClient(MONGO_URI, {
-  ssl: true,
+  family: 4,               // FORCES IPv4 (Fixes Render -> Atlas IPv6 TLS Alert 80)
   tls: true,
   tlsInsecure: true,
-  serverSelectionTimeoutMS: 25000,
-  connectTimeoutMS: 25000
+  serverSelectionTimeoutMS: 20000,
+  connectTimeoutMS: 20000
 });
+
+client.connect()
+  .then(connectedClient => {
+    db = connectedClient.db(DB_NAME);
+    console.log(`Database connected successfully to [${DB_NAME}]`);
+  })
+  .catch(err => {
+    console.error("MongoDB Atlas connection error:", err.message);
+  });
 
 client.connect()
   .then(connectedClient => {
