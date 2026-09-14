@@ -7,11 +7,13 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017';
+// Trim any accidental quotes or whitespace from the environment variable
+const rawUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017';
+const MONGO_URI = rawUri.trim().replace(/^["']|["']$/g, '');
 const DB_NAME = 'olist_analytics';
 const BRL_TO_INR = 18.0;
 
-let db;
+let db = null;
 
 // 1. Root Health Check Route
 app.get('/', (req, res) => {
@@ -23,37 +25,30 @@ app.get('/', (req, res) => {
   });
 });
 
-// 2. Bind port immediately so Render's health check never times out
+// 2. Bind port immediately so Render health check passes instantly
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend server running on port ${PORT}`);
 });
 
-// 3. Connect to MongoDB with explicit IPv4 and TLS parameters
+// 3. Connect to MongoDB Atlas (Clean standard SNI options for OpenSSL 3 / Atlas M0)
 const client = new MongoClient(MONGO_URI, {
-  family: 4,               // FORCES IPv4 (Fixes Render -> Atlas IPv6 TLS Alert 80)
-  tls: true,
-  tlsInsecure: true,
-  serverSelectionTimeoutMS: 20000,
-  connectTimeoutMS: 20000
+  serverSelectionTimeoutMS: 15000,
+  connectTimeoutMS: 15000
 });
 
-client.connect()
-  .then(connectedClient => {
+async function connectDB() {
+  try {
+    const connectedClient = await client.connect();
     db = connectedClient.db(DB_NAME);
     console.log(`Database connected successfully to [${DB_NAME}]`);
-  })
-  .catch(err => {
+  } catch (err) {
     console.error("MongoDB Atlas connection error:", err.message);
-  });
+    // Auto-retry connection after 5 seconds if initial handshake failed
+    setTimeout(connectDB, 5000);
+  }
+}
 
-client.connect()
-  .then(connectedClient => {
-    db = connectedClient.db(DB_NAME);
-    console.log(`Database connected successfully to [${DB_NAME}]`);
-  })
-  .catch(err => {
-    console.error("MongoDB Atlas connection error:", err.message);
-  });
+connectDB();
 
 // ==========================================
 // API ENDPOINTS
