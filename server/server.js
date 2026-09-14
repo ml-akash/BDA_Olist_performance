@@ -7,7 +7,6 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
-// Trim any accidental quotes or whitespace from the environment variable
 const rawUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017';
 const MONGO_URI = rawUri.trim().replace(/^["']|["']$/g, '');
 const DB_NAME = 'olist_analytics';
@@ -15,7 +14,7 @@ const BRL_TO_INR = 18.0;
 
 let db = null;
 
-// 1. Root Health Check Route
+// Health route
 app.get('/', (req, res) => {
   res.json({
     status: 'ONLINE',
@@ -25,30 +24,31 @@ app.get('/', (req, res) => {
   });
 });
 
-// 2. Bind port immediately so Render health check passes instantly
+// Immediate port binding for Render
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend server running on port ${PORT}`);
 });
 
-// 3. Connect to MongoDB Atlas (Clean standard SNI options for OpenSSL 3 / Atlas M0)
+// Resilient MongoDB Client with fallback options
 const client = new MongoClient(MONGO_URI, {
   serverSelectionTimeoutMS: 15000,
-  connectTimeoutMS: 15000
+  connectTimeoutMS: 15000,
+  maxPoolSize: 10,
+  socketTimeoutMS: 45000
 });
 
-async function connectDB() {
+async function connectToMongo() {
   try {
-    const connectedClient = await client.connect();
-    db = connectedClient.db(DB_NAME);
+    await client.connect();
+    db = client.db(DB_NAME);
     console.log(`Database connected successfully to [${DB_NAME}]`);
   } catch (err) {
     console.error("MongoDB Atlas connection error:", err.message);
-    // Auto-retry connection after 5 seconds if initial handshake failed
-    setTimeout(connectDB, 5000);
+    setTimeout(connectToMongo, 5000);
   }
 }
 
-connectDB();
+connectToMongo();
 
 // ==========================================
 // API ENDPOINTS
