@@ -12,51 +12,48 @@ const MONGO_URI = rawUri.trim().replace(/^["']|["']$/g, '');
 const DB_NAME = 'olist_analytics';
 const BRL_TO_INR = 18.0;
 
-let db = null;
+let cachedClient = null;
+let cachedDb = null;
 
-// Health route
-app.get('/', (req, res) => {
+async function getDatabase() {
+  if (cachedDb) return cachedDb;
+  
+  if (!cachedClient) {
+    cachedClient = new MongoClient(MONGO_URI, {
+      family: 4,
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 10000,
+      tls: true,
+      tlsAllowInvalidCertificates: true
+    });
+  }
+
+  try {
+    await cachedClient.connect();
+    cachedDb = cachedClient.db(DB_NAME);
+    console.log(`Database connected successfully to [${DB_NAME}]`);
+    return cachedDb;
+  } catch (err) {
+    console.error("Database lazy-connection error:", err.message);
+    return null;
+  }
+}
+
+// 1. Root Health Check Route (tests connection on request)
+app.get('/', async (req, res) => {
+  const database = await getDatabase();
   res.json({
     status: 'ONLINE',
     service: 'Olist Enterprise Analytics Backend',
-    databaseConnected: Boolean(db),
+    databaseConnected: Boolean(database),
     timestamp: new Date().toISOString()
   });
 });
 
-// Immediate port binding for Render
+// 2. Bind port immediately so Render health check passes instantly
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend server running on port ${PORT}`);
 });
-
-// Resilient MongoDB Client with fallback options
-// const client = new MongoClient(MONGO_URI, {
-//   serverSelectionTimeoutMS: 15000,
-//   connectTimeoutMS: 15000,
-//   maxPoolSize: 10,
-//   socketTimeoutMS: 45000
-// });
-const client = new MongoClient(MONGO_URI, {
-  family: 4,                  // Forces IPv4 routing to prevent Render/Atlas network blocks
-  ssl: true,
-  tls: true,
-  tlsAllowInvalidCertificates: true,
-  serverSelectionTimeoutMS: 20000,
-  connectTimeoutMS: 20000
-});
-
-async function connectToMongo() {
-  try {
-    await client.connect();
-    db = client.db(DB_NAME);
-    console.log(`Database connected successfully to [${DB_NAME}]`);
-  } catch (err) {
-    console.error("MongoDB Atlas connection error:", err.message);
-    setTimeout(connectToMongo, 5000);
-  }
-}
-
-connectToMongo();
 
 // ==========================================
 // API ENDPOINTS
@@ -65,7 +62,9 @@ connectToMongo();
 // Metrics Overview
 app.get('/api/metrics', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'Database loading' });
+    const db = await getDatabase();
+    if (!db) return res.status(503).json({ error: 'Database connection failed' });
+    
     const [productCount, customerCount, orderCount] = await Promise.all([
       db.collection('products').countDocuments(),
       db.collection('customers').countDocuments(),
@@ -80,7 +79,8 @@ app.get('/api/metrics', async (req, res) => {
 // Filter Options for Dropdowns
 app.get('/api/filter-options/:collection', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'Database loading' });
+    const db = await getDatabase();
+    if (!db) return res.status(503).json({ error: 'Database connection failed' });
     const { collection } = req.params;
 
     if (collection === 'products') {
@@ -115,7 +115,9 @@ app.get('/api/filter-options/:collection', async (req, res) => {
 // Paginated Data Fetch with Search and Multi-Filtering
 app.get('/api/data/:collection', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'Database loading' });
+    const db = await getDatabase();
+    if (!db) return res.status(503).json({ error: 'Database connection failed' });
+    
     const { collection } = req.params;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -190,7 +192,9 @@ app.get('/api/data/:collection', async (req, res) => {
 // Create Document
 app.post('/api/data/:collection', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'Database loading' });
+    const db = await getDatabase();
+    if (!db) return res.status(503).json({ error: 'Database connection failed' });
+    
     const { collection } = req.params;
     const payload = { ...req.body, createdAt: new Date() };
 
@@ -217,7 +221,9 @@ app.post('/api/data/:collection', async (req, res) => {
 // Update Document
 app.put('/api/data/:collection/:id', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'Database loading' });
+    const db = await getDatabase();
+    if (!db) return res.status(503).json({ error: 'Database connection failed' });
+    
     const { collection, id } = req.params;
     let query;
 
@@ -246,7 +252,9 @@ app.put('/api/data/:collection/:id', async (req, res) => {
 // Delete Document
 app.delete('/api/data/:collection/:id', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'Database loading' });
+    const db = await getDatabase();
+    if (!db) return res.status(503).json({ error: 'Database connection failed' });
+    
     const { collection, id } = req.params;
     let query;
 
@@ -266,7 +274,9 @@ app.delete('/api/data/:collection/:id', async (req, res) => {
 // Category Matrix Intelligence
 app.get('/api/analytics/categories', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'Database loading' });
+    const db = await getDatabase();
+    if (!db) return res.status(503).json({ error: 'Database connection failed' });
+    
     const pipeline = [
       { $group: {
           _id: '$product_category_name_english',
@@ -292,7 +302,8 @@ app.get('/api/analytics/categories', async (req, res) => {
 // Executive Deep Relations & Analytics Pipeline
 app.get('/api/analytics/deep-relations', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'Database loading' });
+    const db = await getDatabase();
+    if (!db) return res.status(503).json({ error: 'Database connection failed' });
 
     const [temporalRaw, statusBreakdown, topCustomers, retentionCohort] = await Promise.all([
       db.collection('orders').aggregate([
