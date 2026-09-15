@@ -30,11 +30,19 @@ app.listen(PORT, '0.0.0.0', () => {
 });
 
 // Resilient MongoDB Client with fallback options
+// const client = new MongoClient(MONGO_URI, {
+//   serverSelectionTimeoutMS: 15000,
+//   connectTimeoutMS: 15000,
+//   maxPoolSize: 10,
+//   socketTimeoutMS: 45000
+// });
 const client = new MongoClient(MONGO_URI, {
-  serverSelectionTimeoutMS: 15000,
-  connectTimeoutMS: 15000,
-  maxPoolSize: 10,
-  socketTimeoutMS: 45000
+  family: 4,                  // Forces IPv4 routing to prevent Render/Atlas network blocks
+  ssl: true,
+  tls: true,
+  tlsAllowInvalidCertificates: true,
+  serverSelectionTimeoutMS: 20000,
+  connectTimeoutMS: 20000
 });
 
 async function connectToMongo() {
