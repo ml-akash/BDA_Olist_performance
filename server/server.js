@@ -24,7 +24,7 @@ async function getDatabase() {
       serverSelectionTimeoutMS: 10000,
       connectTimeoutMS: 10000,
       tls: true,
-      tlsAllowInvalidCertificates: true
+      tlsInsecure: true // Clean TLS bypass option for cloud environments
     });
   }
 
@@ -39,7 +39,7 @@ async function getDatabase() {
   }
 }
 
-// 1. Root Health Check Route (tests connection on request)
+// 1. Root Health Check Route
 app.get('/', async (req, res) => {
   const database = await getDatabase();
   res.json({
